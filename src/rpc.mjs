@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { version } from './config.mjs';
 
 export class Rpc {
   constructor(command, args, options = {}) {
@@ -64,6 +65,6 @@ export class Rpc {
 export const initializeParams = {
   protocolVersion: 1,
   clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-  clientInfo: { name: 'raft-devin-adapter-probe', version: '0.2.0' },
+  clientInfo: { name: 'raft-devin-adapter-probe', version },
   _meta: { startupHints: { nonInteractive: true, skipGitStatus: true, skipProjectLayout: true }, clientType: 'raft-daemon', clientVersion: '1.0.0' }
 };

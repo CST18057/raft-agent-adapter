@@ -87,6 +87,15 @@ test('permission requests reach the host and session-load history is suppressed'
   assert.ok(!resumed.notifications.some(note => JSON.stringify(note).includes('HISTORY_REPLAY')));
 });
 
+test('authenticate is forwarded and drops the unauthenticated primed session', async t => {
+  const { rpc } = await fixture(t);
+  await rpc.request('initialize', initializeParams);   // primes fixture-1 internally
+  await rpc.request('authenticate', { methodId: 'devin-browser', _meta: { api_key: 'probe' } });
+  const fresh = await rpc.request('session/new', { cwd: process.cwd(), mcpServers: [] });
+  assert.equal(fresh.sessionId, 'fixture-2'); // not the released primed session
+  await rpc.request('session/delete', { sessionId: fresh.sessionId });
+});
+
 test('missing mid-turn capability fails initialization explicitly', async t => {
   const { rpc } = await fixture(t, { MOCK_NO_MID_TURN: '1' });
   await assert.rejects(rpc.request('initialize', initializeParams), /required session resume or mid-turn/);

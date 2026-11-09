@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
-$adapterBin = Join-Path $PSScriptRoot 'bin'
+$ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$adapterBin = Join-Path $ProjectRoot 'bin'
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $newPath = @($userPath -split ';' | Where-Object { $_ -and $_ -ine $adapterBin }) -join ';'
 [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')

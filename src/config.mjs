@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 export const projectRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const version = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')).version;
+export const launcherPath = path.join(projectRoot, 'bin', process.platform === 'win32' ? 'grok.exe' : 'grok');
 
 export function loadConfig() {
   const configPath = process.env.DEVIN_ADAPTER_CONFIG || path.join(projectRoot, 'adapter.config.json');
@@ -16,6 +17,14 @@ export function loadConfig() {
   const candidates = explicit ? [explicit] : [];
   if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
     candidates.push(path.join(process.env.LOCALAPPDATA, 'devin', 'cli', 'bin', 'devin.exe'));
+  } else if (process.env.HOME) {
+    // Standalone Devin CLI install locations on macOS/Linux. The .local/bin
+    // entry is a PATH-visible symlink; the _versions path is its real target,
+    // which keeps discovery working when the daemon's PATH is minimal.
+    candidates.push(
+      path.join(process.env.HOME, '.local', 'bin', 'devin'),
+      path.join(process.env.HOME, '.local', 'share', 'devin', 'cli', '_versions', 'current', 'bin', 'devin')
+    );
   }
   for (const entry of (process.env.PATH || '').split(path.delimiter)) {
     candidates.push(path.join(entry, process.platform === 'win32' ? 'devin.exe' : 'devin'));

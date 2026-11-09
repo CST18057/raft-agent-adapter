@@ -1,8 +1,9 @@
 [CmdletBinding()]
 param([string]$DevinExe, [string]$ProxyUrl, [switch]$ReplaceAdapter)
 $ErrorActionPreference = 'Stop'
+$ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 & (Join-Path $PSScriptRoot 'Build.ps1')
-$adapterBin = Join-Path $PSScriptRoot 'bin'
+$adapterBin = Join-Path $ProjectRoot 'bin'
 $adapterExe = Join-Path $adapterBin 'grok.exe'
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $entries = @($userPath -split ';' | Where-Object { $_ })
@@ -17,7 +18,7 @@ foreach ($existing in @($possible | Where-Object { $_ } | Select-Object -Unique)
     if ($LASTEXITCODE -ne 0 -or $identity -notlike 'raft-devin-adapter *') { throw 'Refusing to replace an executable that does not identify as raft-devin-adapter.' }
     $previous += Split-Path -Parent $existing
 }
-$configPath = Join-Path $PSScriptRoot 'adapter.config.json'
+$configPath = Join-Path $ProjectRoot 'adapter.config.json'
 if ($PSBoundParameters.ContainsKey('DevinExe') -or $PSBoundParameters.ContainsKey('ProxyUrl')) {
     $config = if (Test-Path -LiteralPath $configPath) { Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
     if ($PSBoundParameters.ContainsKey('DevinExe')) {
@@ -27,7 +28,7 @@ if ($PSBoundParameters.ContainsKey('DevinExe') -or $PSBoundParameters.ContainsKe
     if ($PSBoundParameters.ContainsKey('ProxyUrl')) { $config | Add-Member NoteProperty proxyUrl $ProxyUrl -Force }
     $config | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding UTF8
 }
-$statePath = Join-Path $PSScriptRoot '.local\installation-state.json'
+$statePath = Join-Path $ProjectRoot '.local\installation-state.json'
 if (-not (Test-Path -LiteralPath $statePath)) {
     [pscustomobject]@{ installedAt = [DateTimeOffset]::Now.ToString('o'); pathBeforeInstall = $userPath; adapterBin = $adapterBin; previousAdapterBins = $previous } | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding UTF8
 }

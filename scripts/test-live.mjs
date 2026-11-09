@@ -3,11 +3,11 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { Rpc, initializeParams } from '../src/rpc.mjs';
-import { projectRoot } from '../src/config.mjs';
+import { projectRoot, launcherPath } from '../src/config.mjs';
 import { option } from '../src/model-config.mjs';
 
 const launcher = process.argv.includes('--launcher');
-const rpc = new Rpc(launcher ? path.join(projectRoot, 'bin/grok.exe') : process.execPath,
+const rpc = new Rpc(launcher ? launcherPath : process.execPath,
   [...(launcher ? [] : [path.join(projectRoot, 'src/adapter.mjs')]), 'agent', 'stdio']);
 let sessionId;
 try {

@@ -5,14 +5,14 @@ This repository is a local compatibility layer between two ACP dialects. It uses
 ```mermaid
 sequenceDiagram
     participant R as Raft Computer
-    participant L as bin/grok.exe
+    participant L as bin/grok(.exe)
     participant A as Node adapter
     participant D as devin acp
-    R->>L: agent stdio
-    L->>A: Launch with byte-preserving stdio
+    R->>L: agent --no-leader --always-approve stdio
+    L->>A: exec node adapter.mjs with byte-preserving stdio
     A->>D: initialize + temporary session/new
     D-->>A: Capabilities + native model options
-    A-->>R: Grok-compatible model metadata
+    A-->>R: Grok-compatible model metadata (_meta.modelState)
     R->>A: session/new or session/load
     A->>D: Open or resume session
     R->>A: session/set_model + reasoningEffort
@@ -30,14 +30,42 @@ sequenceDiagram
 
 | Component | Responsibility |
 | --- | --- |
-| `scripts/Launcher.cs` | Windows `grok.exe` entry point, argument quoting, flushed byte streams, process lifetime binding |
+| `platform/windows/Launcher.cs` | Windows `grok.exe` entry point, argument quoting, flushed byte streams, process lifetime binding |
+| `platform/linux/build.sh` | Generates `bin/grok`, a POSIX launcher that `exec`s Node with this checkout |
+| `platform/*/install.*` | PATH installation, foreign-`grok` collision checks, optional config write |
 | `src/adapter.mjs` | ACP initialization, host request forwarding, model translation, resume, interjection |
 | `src/rpc.mjs` | Newline-delimited JSON-RPC subprocess transport with request timeouts |
 | `src/model-config.mjs` | Native thinking metadata and catalog fingerprints |
 | `src/config.mjs` | Local configuration and executable discovery |
 | `scripts/refresh-models.mjs` | Read thinking choices from real model configuration, without inference |
+| `scripts/fake-peer-config.mjs` | Write a config pointing the adapter at the deterministic offline peer |
+| `docker/` | Self-contained Linux development and verification image |
+| `docker/probe.mjs` | Drives the same ACP sequence the Raft daemon sends, through the launcher |
 
-The launcher resolves the checkout relative to itself. `Build.ps1` records the real Node executable path, resolving version-manager junctions, in `.local/node-path.txt`. A Windows job object ties Node and its inheriting child processes to the launcher; a binding failure produces an error. No executable is downloaded by the build script.
+The launcher resolves the checkout relative to itself. Both platforms record the real Node executable path, resolving version-manager indirections, in `.local/node-path.txt`.
+
+### Process lifetime
+
+- **Windows**: the compiled C# launcher spawns Node and binds it to a Windows job object so the whole tree dies with the launcher.
+- **Linux**: `bin/grok` ends with `exec node src/adapter.mjs "$@"`, so the launcher *is* the adapter process. This is load-bearing, not cosmetic: Raft's POSIX driver creates runtime children in their own process group and signals the launcher PID on shutdown and during model-detection probes. A wrapper script that spawned Node as a child would leave Node and Devin orphaned. When the adapter process dies, the Devin child's stdin hits EOF and it exits.
+
+### PATH installation
+
+- **Windows**: the checkout's `bin/` directory is prepended to the persisted user PATH and the current shell's PATH.
+- **Linux**: `install.sh` writes `~/.local/bin/grok`, a two-line trampoline that `exec`s this checkout's `bin/grok`. `~/.local/bin` is on PATH for standard login sessions and is also Raft's POSIX fallback discovery directory when `which grok` fails. `DEVIN_ADAPTER_BIN_DIR` overrides the target directory.
+
+## What Raft sends on the wire
+
+Extracted from the shipped `raft-computer` daemon's Grok driver (`packages/daemon/src/drivers/grok.ts`), and mirrored by `docker/probe.mjs`:
+
+- Launch arguments: `agent --no-leader --always-approve stdio`; runtime probe: `agent stdio --help`.
+- Discovery: `which grok`, falling back to `~/.local/bin/grok` on POSIX.
+- `initialize`, then `_meta.modelState.availableModels` plus per-model `_meta.reasoningEfforts` / `reasoningEffort` are read from the initialize result.
+- `session/new` or `session/load` carries `_meta: { systemPromptOverride, yoloMode: true, modelId? }`; `_meta` is stripped before the native call.
+- `session/set_model { sessionId, modelId, _meta: { reasoningEffort? } }`.
+- Busy-turn steering is sent as `_x.ai/interject { sessionId, text, interjectionId }`.
+- Agent-originated `session/request_permission` is auto-approved with `allow_once` during an always-approve active turn; other host requests receive an explicit method error.
+- `authenticate` is **not** sent to this slot. The daemon maps an `-32000` initialize/session error to a `runtime_not_authenticated` state.
 
 ## Model and thinking translation
 
@@ -45,7 +73,16 @@ Raft receives model IDs prefixed with `devin:`. A selection such as `devin:swe-2
 
 The initialization result adds `_meta.modelState.availableModels`, including per-model `_meta.reasoningEfforts` and an available default. An ignored catalog stores native choices for models other than the currently active model. Its fingerprint includes the Devin executable size/mtime and native model choices; it is a cache key, not an integrity signature. Refresh it after CLI updates.
 
-Native `none` is excluded from Raft's explicit strength vocabulary. A model whose preset is `none` still uses that preset when Raft selects Default. The adapter does not rewrite native model suffixes or invent model IDs for thinking levels.
+Native `none` is excluded from Raft's explicit strength vocabulary (`low medium high xhigh max ultra` — matching Raft's own `KNOWN_REASONING_EFFORTS`). A model whose preset is `none` still uses that preset when Raft selects Default. The adapter does not rewrite native model suffixes or invent model IDs for thinking levels.
+
+## Authentication
+
+Devin's ACP credential policy depends on the distribution channel:
+
+- The **standalone CLI** installed by `cli.devin.ai/install.sh` (the officially documented path on every OS) accepts the local login established by `devin setup` and permits `session/new` without host authentication. This is the supported configuration.
+- The **Devin Desktop-bundled** `devin` binary declares the ACP host the sole source of credentials and rejects `session/new` with `-32000` until the host calls `authenticate`.
+
+The adapter forwards a host `authenticate` call to Devin verbatim and drops the unauthenticated primed session on success, so the next session open reflects the account's real model options. Raft's Grok driver never sends `authenticate`; the forwarding exists for hosts that do, and for distributions that require it.
 
 ## Messages, instructions, and resume
 
@@ -61,9 +98,10 @@ Initialization requires both native session loading and `cognition.ai/midTurnPro
 
 | Location | Contents |
 | --- | --- |
-| `bin/` | Locally compiled launcher |
-| `.local/` | Node path, catalog, original user PATH backup |
+| `bin/` | Locally generated launcher (`grok` or `grok.exe`) |
+| `.local/` | Node path, catalog, install state (PATH backup / link path) |
 | `adapter.config.json` | Optional local executable and proxy configuration |
+| `~/.local/bin/grok` | Linux PATH trampoline created by `install.sh` |
 | Official Devin storage | Authentication and native sessions, managed by Devin |
 
 All generated and machine-specific adapter files are ignored by Git. The public repository has no runtime npm dependencies and does not contain Raft, Devin, or Grok source or binaries. Advanced tests may override the native process arguments with a local `devinArgs` string array; normal usage keeps the default `['acp']`.

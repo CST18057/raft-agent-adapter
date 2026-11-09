@@ -19,6 +19,7 @@ function config(session) {
 function persist() { if (process.env.MOCK_STATE_FILE) fs.writeFileSync(process.env.MOCK_STATE_FILE, JSON.stringify([...sessions])); }
 async function handle(method, params) {
   if (method === 'initialize') return { protocolVersion: 1, agentCapabilities: { loadSession: true, _meta: { 'cognition.ai/midTurnPrompts': process.env.MOCK_NO_MID_TURN !== '1' } } };
+  if (method === 'authenticate') return {};
   if (method === 'session/new') {
     const sessionId = `fixture-${++counter}`;
     const session = { model: 'swe-2-high', effort: 'high' };

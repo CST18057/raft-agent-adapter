@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
+$ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $nodeCommand = Get-Command node.exe -ErrorAction Stop
 $nodeExe = (& $nodeCommand.Source -p "require('node:fs').realpathSync(process.execPath)").Trim()
 $nodeMajor = [int](& $nodeExe -p "process.versions.node.split('.')[0]")
@@ -11,9 +12,9 @@ $compilerCandidates = @(
 )
 $compiler = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
 if (-not $compiler) { throw '.NET Framework 4 C# compiler not found. Enable/install .NET Framework 4.x first.' }
-New-Item -ItemType Directory -Path (Join-Path $PSScriptRoot 'bin'),(Join-Path $PSScriptRoot '.local') -Force | Out-Null
-[IO.File]::WriteAllText((Join-Path $PSScriptRoot '.local\node-path.txt'), $nodeExe, (New-Object Text.UTF8Encoding($false)))
-& $compiler /nologo /target:exe /optimize+ ("/out:{0}" -f (Join-Path $PSScriptRoot 'bin\grok.exe')) (Join-Path $PSScriptRoot 'scripts\Launcher.cs')
+New-Item -ItemType Directory -Path (Join-Path $ProjectRoot 'bin'),(Join-Path $ProjectRoot '.local') -Force | Out-Null
+[IO.File]::WriteAllText((Join-Path $ProjectRoot '.local\node-path.txt'), $nodeExe, (New-Object Text.UTF8Encoding($false)))
+& $compiler /nologo /target:exe /optimize+ ("/out:{0}" -f (Join-Path $ProjectRoot 'bin\grok.exe')) (Join-Path $PSScriptRoot 'Launcher.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Launcher build failed. Stop agents using this checkout before rebuilding an in-use launcher.' }
-& (Join-Path $PSScriptRoot 'bin\grok.exe') --version
+& (Join-Path $ProjectRoot 'bin\grok.exe') --version
 if ($LASTEXITCODE -ne 0) { throw 'Launcher version check failed.' }

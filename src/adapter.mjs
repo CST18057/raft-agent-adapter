@@ -55,9 +55,9 @@ function modelResult(session) {
   try {
     const loaded = JSON.parse(readFileSync(config.catalogPath, 'utf8'));
     if (loaded.schema === 1 && loaded.key === catalogKey(config.devinExe, modelOption?.options ?? [])) catalog = loaded.models;
-    else console.error('[raft-devin-adapter] Thinking options changed; run Refresh-Models.ps1, then refresh the model list in Raft.');
+    else console.error('[raft-devin-adapter] Thinking options changed; run `npm run models:refresh`, then refresh the model list in Raft.');
   } catch {
-    console.error('[raft-devin-adapter] No verified thinking catalog; run Refresh-Models.ps1 to discover options for all models.');
+    console.error('[raft-devin-adapter] No verified thinking catalog; run `npm run models:refresh` to discover options for all models.');
   }
   return {
     currentModelId: `devin:${modelOption?.currentValue ?? config.defaultModel ?? 'swe-2-high'}`,
@@ -101,8 +101,22 @@ async function handle(method, params) {
     if (initialized.agentCapabilities?.loadSession !== true || initialized.agentCapabilities?._meta?.['cognition.ai/midTurnPrompts'] !== true) {
       throw new Error('Devin no longer advertises required session resume or mid-turn prompt capabilities; refusing an incompatible launch');
     }
-    primed = await rpc.request('session/new', { cwd: process.cwd(), mcpServers: [] }, 90000);
+    try {
+      primed = await rpc.request('session/new', { cwd: process.cwd(), mcpServers: [] }, 90000);
+    } catch (error) {
+      if (error.rpc?.code === -32000) {
+        console.error('[raft-devin-adapter] Devin ACP is not authenticated. Log in once with `devin setup` on a standalone Devin CLI install, or use an ACP host that calls `authenticate`.');
+      }
+      throw error;
+    }
     return { ...initialized, _meta: { ...initialized._meta, modelState: modelResult(primed), 'raft-devin-adapter': version } };
+  }
+  if (method === 'authenticate') {
+    const result = await rpc.request(method, params, 120000);
+    // Account state changed: drop the unauthenticated primed session so the
+    // next session open discovers the real model options for the account.
+    await releasePrimed();
+    return result;
   }
   if (method === 'session/new' || method === 'session/load') {
     const { _meta: meta = {}, ...nativeParams } = params;

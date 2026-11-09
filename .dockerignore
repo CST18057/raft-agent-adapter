@@ -1,0 +1,10 @@
+.git
+.github
+bin
+.local
+node_modules
+adapter.config.json
+coverage
+reference
+test-workspace
+*.log

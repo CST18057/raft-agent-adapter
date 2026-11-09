@@ -19,7 +19,24 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
-      - name: Build Windows stdio launcher
+      - name: Build Windows stdio launcher and smoke-test the full chain
         if: runner.os == 'Windows'
         shell: powershell
-        run: ./Build.ps1
+        run: |
+          ./platform/windows/Build.ps1
+          node scripts/fake-peer-config.mjs "$env:TEMP/raft-adapter-fake.json"
+          $env:DEVIN_ADAPTER_CONFIG = "$env:TEMP/raft-adapter-fake.json"
+          $env:MOCK_STATE_FILE = "$env:TEMP/raft-adapter-fake-sessions.json"
+          node scripts/smoke.mjs --launcher
+      - name: Build Linux launcher and smoke-test the full chain
+        if: runner.os == 'Linux'
+        run: |
+          platform/linux/build.sh
+          node scripts/fake-peer-config.mjs /tmp/raft-adapter-fake.json
+          DEVIN_ADAPTER_CONFIG=/tmp/raft-adapter-fake.json MOCK_STATE_FILE=/tmp/raft-adapter-fake-sessions.json node scripts/smoke.mjs --launcher
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Linux dev/verification image without external downloads
+        run: docker build -f docker/Dockerfile --build-arg INSTALL_DEVIN=0 --build-arg INSTALL_RAFT=0 -t raft-devin-adapter .
