@@ -1,0 +1,42 @@
+# Dependencies and generated launcher
+node_modules/
+bin/
+.local/
+coverage/
+
+# Machine configuration, credentials and runtime data
+adapter.config.json
+node-path.txt
+installation-state.json
+model-catalog.json
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+.devin/
+.raft/
+.grok/
+
+# Local experiments, sessions and diagnostic output
+reference/
+test-workspace/
+*-result.json
+*-validation.json
+*.log
+*.jsonl
+*.db
+*.db-*
+*.tmp
+*.zip
+*.exe
+*.dll
+
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini

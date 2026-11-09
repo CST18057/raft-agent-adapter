@@ -1,0 +1,21 @@
+{
+  "name": "raft-devin-adapter",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Run Devin CLI as an internal Raft agent through its existing Grok ACP runtime slot.",
+  "license": "MIT",
+  "author": "sealpp",
+  "repository": { "type": "git", "url": "https://github.com/sealpp/raft-devin-adapter.git" },
+  "bugs": "https://github.com/sealpp/raft-devin-adapter/issues",
+  "homepage": "https://github.com/sealpp/raft-devin-adapter#readme",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test test/adapter.test.mjs",
+    "check": "node --check src/adapter.mjs && node --check src/config.mjs && node --check src/rpc.mjs && node --check src/model-config.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "models:refresh": "node scripts/refresh-models.mjs",
+    "test:live": "node scripts/test-live.mjs"
+  },
+  "keywords": ["raft", "devin", "acp", "agent", "windows", "adapter"]
+}

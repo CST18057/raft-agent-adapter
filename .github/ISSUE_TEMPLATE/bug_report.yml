@@ -1,0 +1,31 @@
+name: Bug report / 问题反馈
+description: Report a reproducible adapter or compatibility problem.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: English and Chinese are welcome. Remove credentials, transcripts, session IDs, and personal paths from diagnostics.
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions / 版本
+      description: Adapter, Raft Computer, Devin CLI, Node.js, and Windows versions.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps and expected behavior / 复现步骤与预期
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and sanitized errors / 实际行为与脱敏报错
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Checks already performed / 已进行的检查
+      description: For example, Test-Adapter.ps1, model refresh, official CLI login, or a Computer restart.
