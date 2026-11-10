@@ -13,7 +13,7 @@ async function fixture(t, extraEnv = {}) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'raft-devin-test-'));
   const configFile = path.join(temp, 'config.json');
   fs.writeFileSync(configFile, JSON.stringify({ backend: 'devin', devinExe: process.execPath, devinArgs: [path.join(projectRoot, 'test/fake-devin.mjs')] }));
-  const env = { ...process.env, DEVIN_EXE: process.execPath, DEVIN_ADAPTER_CONFIG: configFile, RAFT_ADAPTER_LOCAL: temp, MOCK_STATE_FILE: path.join(temp, 'sessions.json'), ...extraEnv };
+  const env = { ...process.env, RAFT_ADAPTER_CONFIG: configFile, RAFT_ADAPTER_LOCAL: temp, MOCK_STATE_FILE: path.join(temp, 'sessions.json'), ...extraEnv };
   const start = () => new Rpc(process.execPath, [path.join(projectRoot, 'src/adapter.mjs'), 'agent', 'stdio'], { cwd: temp, env });
   const clients = [];
   const open = () => { const rpc = start(); clients.push(rpc); return rpc; };
@@ -24,7 +24,6 @@ async function fixture(t, extraEnv = {}) {
 
 test('version and help work before Devin or local configuration is installed', () => {
   const env = { ...process.env, RAFT_ADAPTER_CONFIG: 'missing.json' };
-  delete env.DEVIN_ADAPTER_CONFIG;
   for (const arg of ['--version', '--help']) {
     const output = execFileSync(process.execPath, [path.join(projectRoot, 'src/adapter.mjs'), arg], { encoding: 'utf8', env });
     assert.match(output, /adapter/i);

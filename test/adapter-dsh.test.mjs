@@ -18,7 +18,6 @@ async function fixture(t, extraEnv = {}) {
   }));
   const env = {
     ...process.env,
-    DSH_EXE: process.execPath,
     RAFT_ADAPTER_CONFIG: configFile,
     RAFT_ADAPTER_LOCAL: temp,
     MOCK_STATE_FILE: path.join(temp, 'sessions.json'),

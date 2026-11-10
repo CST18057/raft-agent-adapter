@@ -7,7 +7,7 @@ import { statSync } from 'node:fs';
 const raftEfforts = new Set(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 export const option = (session, id) => session.configOptions?.find(o => o.id === id);
 
-export function thinkingInfo(session, configId = 'thought_level') {
+export function thinkingInfo(session, configId) {
   const thinking = option(session, configId);
   return {
     efforts: (thinking?.options ?? []).map(o => o.value).filter(v => typeof v === 'string' && v),
@@ -15,8 +15,8 @@ export function thinkingInfo(session, configId = 'thought_level') {
   };
 }
 
-export function catalogKey(devinExe, models) {
-  const stat = statSync(devinExe);
+export function catalogKey(executable, models) {
+  const stat = statSync(executable);
   return createHash('sha256').update(JSON.stringify({
     binary: { size: stat.size, modified: stat.mtimeMs },
     models

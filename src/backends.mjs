@@ -5,8 +5,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const REQUIRED = 'required';
-
 function missingSessionError(sessionId, cause) {
   // Raft's Grok driver only auto-recovers to a fresh session when the resume
   // failure matches /(path|session).*(not found|missing)/i. Translate any
@@ -22,7 +20,7 @@ function modelEntriesOf(options) {
   // (dsh: [{group, name, options:[{value,name}]}]). Always emit flat entries.
   return (options ?? []).flatMap(entry =>
     Array.isArray(entry.options)
-      ? entry.options.map(o => ({ value: o.value, name: o.name ?? o.value, group: entry.name ?? entry.group }))
+      ? entry.options.map(o => ({ value: o.value, name: o.name ?? o.value }))
       : [{ value: entry.value, name: entry.name ?? entry.value }]
   ).filter(entry => typeof entry.value === 'string' && entry.value);
 }
@@ -65,7 +63,6 @@ export const backends = {
     displayName: 'DSH',
     modelPrefix: 'dsh:',
     thinkingConfigId: 'reasoning_effort',
-    builtinDefaultModel: null,
     midTurn: false,
     nativeLoad: false,
     loadMethod: 'session/resume',
@@ -101,7 +98,7 @@ export const backends = {
   },
 };
 
-export function backendStatePath(dir) {
+function backendStatePath(dir) {
   return path.join(dir, 'backend-state.json');
 }
 
@@ -123,5 +120,3 @@ export function writeBackendState(dir, backendId, entry) {
   fs.writeFileSync(file + '.tmp', JSON.stringify(parsed, null, 2));
   fs.renameSync(file + '.tmp', file);
 }
-
-export const REQUIRED_CAPABILITY = REQUIRED;

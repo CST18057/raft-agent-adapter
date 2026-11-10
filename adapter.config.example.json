@@ -4,6 +4,5 @@
   "devinArgs": ["acp"],
   "dshExe": "",
   "dshArgs": ["acp"],
-  "proxyUrl": "",
-  "defaultModel": "swe-2-high"
+  "proxyUrl": ""
 }

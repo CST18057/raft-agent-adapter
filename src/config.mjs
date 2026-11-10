@@ -78,28 +78,27 @@ export function localDir() {
 }
 
 export function loadConfig() {
-  const configPath = process.env.RAFT_ADAPTER_CONFIG || process.env.DEVIN_ADAPTER_CONFIG || path.join(projectRoot, 'adapter.config.json');
+  const configPath = process.env.RAFT_ADAPTER_CONFIG || path.join(projectRoot, 'adapter.config.json');
   let local = {};
   try { local = JSON.parse(fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, '')); }
-
   catch (e) { if (e.code !== 'ENOENT') throw new Error('Cannot read adapter configuration; check its JSON syntax.'); }
   const requested = process.env.RAFT_ADAPTER_BACKEND || local.backend || 'auto';
 
-  const devinExe = findDevinExe(process.env.DEVIN_EXE || local.devinExe);
-  const dshExe = findDshExe(process.env.DSH_EXE || local.dshExe);
-  let backendId = requested;
-  if (backendId === 'auto') backendId = devinExe ? 'devin' : 'dsh';
-  if (!['devin', 'dsh'].includes(backendId)) throw new Error(`Unknown adapter backend: ${requested} (expected devin or dsh)`);
-  const exe = backendId === 'devin' ? devinExe : dshExe;
-  if (!exe) {
-    throw new Error(backendId === 'devin'
-      ? 'Devin CLI was not found. Install it first, or set DEVIN_EXE / devinExe to its executable path.'
-      : 'DeepSeek Harness was not found. Install @deepseek-ai/dsh first, or set DSH_EXE / dshExe to its executable path.');
+  if (!['auto', 'devin', 'dsh'].includes(requested)) throw new Error(`Unknown adapter backend: ${requested} (expected auto, devin or dsh)`);
+  const devinExe = requested === 'dsh' ? null : findDevinExe(process.env.DEVIN_EXE || local.devinExe);
+  const backendId = requested === 'auto' ? (devinExe ? 'devin' : 'dsh') : requested;
+  const executable = backendId === 'devin' ? devinExe : findDshExe(process.env.DSH_EXE || local.dshExe);
+  if (!executable) {
+    throw new Error(requested === 'auto'
+      ? 'Neither Devin CLI nor DeepSeek Harness was found. Install one, or set DEVIN_EXE / DSH_EXE.'
+      : backendId === 'devin'
+        ? 'Devin CLI was not found. Install it first, or set DEVIN_EXE / devinExe to its executable path.'
+        : 'DeepSeek Harness was not found. Install @deepseek-ai/dsh first, or set DSH_EXE / dshExe to its executable path.');
   }
 
   // Explicit local configuration overrides inherited proxy variables only for
   // the backend child. Empty configuration preserves its normal environment.
-  const proxyUrl = process.env.RAFT_ADAPTER_PROXY || process.env.DEVIN_ADAPTER_PROXY || local.proxyUrl || '';
+  const proxyUrl = process.env.RAFT_ADAPTER_PROXY || local.proxyUrl || '';
   if (proxyUrl) {
     let parsed;
     try { parsed = new URL(proxyUrl); } catch { throw new Error('proxyUrl must be a valid proxy URL.'); }
@@ -110,12 +109,13 @@ export function loadConfig() {
   const args = Array.isArray(argOverride) && argOverride.every(arg => typeof arg === 'string')
     ? argOverride : ['acp'];
   // A resolved .js entry (dsh's npm lib/bin.js) runs under the recorded Node.
-  const viaNode = exe.endsWith('.js');
+  const viaNode = executable.endsWith('.js');
   return {
     backendId,
-    spawn: viaNode ? { command: nodeExecutable(), args: [path.resolve(exe), ...args] } : { command: path.resolve(exe), args },
+    executable,
+    spawn: viaNode ? { command: nodeExecutable(), args: [path.resolve(executable), ...args] } : { command: path.resolve(executable), args },
     proxyUrl,
-    defaultModel: local[`${backendId}DefaultModel`] || local.defaultModel || null,
+    defaultModel: local.defaultModel || null,
     catalogPath: path.join(localDir(), 'model-catalog.json')
   };
 }

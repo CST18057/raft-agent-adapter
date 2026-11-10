@@ -57,7 +57,7 @@ function modelResult(session) {
   let catalog;
   try {
     const loaded = JSON.parse(readFileSync(config.catalogPath, 'utf8'));
-    if (loaded.schema === 1 && loaded.key === catalogKey(config.spawn.command, modelOption?.options ?? [])) catalog = loaded.models;
+    if (loaded.schema === 1 && loaded.key === catalogKey(config.executable, modelOption?.options ?? [])) catalog = loaded.models;
     else console.error('[raft-agent-adapter] Thinking options changed; run `npm run models:refresh`, then refresh the model list in Raft.');
   } catch {
     console.error('[raft-agent-adapter] No verified thinking catalog; run `npm run models:refresh` to discover options for all models.');
@@ -151,7 +151,7 @@ async function handle(method, params) {
       if (backend.persistentPrimed) writeBackendState(localDir(), backend.id, { primedSessionId: null, primedCwd: process.cwd() });
     } else {
       await releasePrimed();
-      const nativeMethod = method === 'session/load' ? backend.loadMethod ?? method : method;
+      const nativeMethod = method === 'session/load' ? backend.loadMethod : method;
       const nativeCall = method === 'session/load' ? backend.resumeParams(nativeParams) : nativeParams;
       loading = method === 'session/load' && backend.nativeLoad;
       try { opened = await rpc.request(nativeMethod, nativeCall, 90000); }

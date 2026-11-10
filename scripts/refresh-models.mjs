@@ -17,7 +17,7 @@ try {
   const opened = await rpc.request('session/new', { cwd: process.cwd(), mcpServers: [] });
   sessionId = opened.sessionId;
   const models = backend.modelEntries(opened, option);
-  const catalog = { schema: 1, generatedAt: new Date().toISOString(), backend: backend.id, key: catalogKey(config.spawn.command, option(opened, 'model')?.options ?? []), models: {} };
+  const catalog = { schema: 1, generatedAt: new Date().toISOString(), backend: backend.id, key: catalogKey(config.executable, option(opened, 'model')?.options ?? []), models: {} };
   for (const [i, model] of models.entries()) {
     const selected = await rpc.request('session/set_config_option', { sessionId, configId: 'model', value: model.value });
     if (option(selected, 'model')?.currentValue !== model.value) throw new Error(`${backend.displayName} did not confirm the selected model.`);

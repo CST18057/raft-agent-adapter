@@ -25,7 +25,7 @@ node scripts/smoke.mjs --launcher
 
 step "Same chain against the fake DeepSeek Harness peer"
 node scripts/fake-peer-config.mjs /tmp/raft-adapter-fake-dsh.json --backend dsh
-RAFT_ADAPTER_CONFIG=/tmp/raft-adapter-fake-dsh.json MOCK_STATE_FILE=/tmp/raft-adapter-fake-dsh-sessions.json node scripts/smoke.mjs --launcher
+RAFT_ADAPTER_CONFIG=/tmp/raft-adapter-fake-dsh.json MOCK_STATE_FILE=/tmp/raft-adapter-fake-dsh-sessions.json RAFT_ADAPTER_LOCAL=/tmp/raft-adapter-fake-dsh-local node scripts/smoke.mjs --launcher
 RAFT_ADAPTER_CONFIG=/tmp/raft-adapter-fake-dsh.json MOCK_STATE_FILE=/tmp/raft-adapter-fake-dsh-sessions.json RAFT_ADAPTER_LOCAL=/tmp/raft-adapter-fake-dsh-local node docker/probe.mjs
 
 step "Install grok onto PATH and verify discovery"
@@ -45,7 +45,7 @@ command -v grok >/dev/null
 
 if command -v devin >/dev/null 2>&1; then
   step "Real Devin CLI handshake through the adapter (no inference)"
-  DEVIN_ADAPTER_CONFIG=/tmp/does-not-exist.json node docker/probe.mjs --via-path
+  RAFT_ADAPTER_CONFIG=/tmp/does-not-exist.json node docker/probe.mjs --via-path
 fi
 
 if command -v raft-computer >/dev/null 2>&1; then

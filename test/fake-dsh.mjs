@@ -74,9 +74,6 @@ async function handle(method, params) {
     persist();
     return { sessionId, ...config(session) };
   }
-  if (method === 'session/list') {
-    return { sessions: [...sessions.entries()].filter(([, s]) => !s.active).map(([sessionId, s]) => ({ sessionId, cwd: s.cwd })) };
-  }
   if (method === 'session/resume') {
     const stored = sessions.get(params.sessionId);
     if (stored?.active) throw Object.assign(new Error(`session is already active: ${params.sessionId}`), { code: -32602 });

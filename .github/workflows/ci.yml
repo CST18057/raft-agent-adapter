@@ -25,7 +25,7 @@ jobs:
         run: |
           ./platform/windows/Build.ps1
           node scripts/fake-peer-config.mjs "$env:TEMP/raft-adapter-fake.json"
-          $env:DEVIN_ADAPTER_CONFIG = "$env:TEMP/raft-adapter-fake.json"
+          $env:RAFT_ADAPTER_CONFIG = "$env:TEMP/raft-adapter-fake.json"
           $env:MOCK_STATE_FILE = "$env:TEMP/raft-adapter-fake-sessions.json"
           node scripts/smoke.mjs --launcher
       - name: Build Linux launcher and smoke-test the full chain
@@ -33,7 +33,7 @@ jobs:
         run: |
           platform/linux/build.sh
           node scripts/fake-peer-config.mjs /tmp/raft-adapter-fake.json
-          DEVIN_ADAPTER_CONFIG=/tmp/raft-adapter-fake.json MOCK_STATE_FILE=/tmp/raft-adapter-fake-sessions.json node scripts/smoke.mjs --launcher
+          RAFT_ADAPTER_CONFIG=/tmp/raft-adapter-fake.json MOCK_STATE_FILE=/tmp/raft-adapter-fake-sessions.json node scripts/smoke.mjs --launcher
   docker:
     runs-on: ubuntu-latest
     steps:
