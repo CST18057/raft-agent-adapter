@@ -30,7 +30,7 @@ done
 
 is_adapter() {
   [ -x "$1" ] || return 1
-  timeout 10 "$1" --version 2>/dev/null | head -n 1 | grep -q '^raft-agent-adapter '
+  timeout 10 "$1" --version 2>/dev/null | head -n 1 | grep -qE '^raft-(agent|devin)-adapter '
 }
 
 # Check every PATH entry plus the link target, mirroring the Windows
