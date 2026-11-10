@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install the adapter's launcher onto the user's PATH as `grok` (Linux).
 #
-#   ./install.sh [--devin-exe PATH] [--proxy-url URL] [--replace-adapter]
+#   ./install.sh [--devin-exe PATH] [--proxy-url URL]
 #
 # Creates <bin-dir>/grok (default ~/.local/bin/grok), a small trampoline that
 # execs this checkout's generated bin/grok. ~/.local/bin is the standard
@@ -9,29 +9,22 @@
 set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)
-BIN_DIR=${DEVIN_ADAPTER_BIN_DIR:-"$HOME/.local/bin"}
+BIN_DIR=${RAFT_ADAPTER_BIN_DIR:-"$HOME/.local/bin"}
 TARGET="$ROOT/bin/grok"
 LINK="$BIN_DIR/grok"
 DEVIN_EXE=""
 PROXY_URL=""
-REPLACE_ADAPTER=false
 
 while [ $# -gt 0 ]; do
   case $1 in
     --devin-exe) DEVIN_EXE=${2:?--devin-exe needs a path}; shift 2 ;;
     --proxy-url) PROXY_URL=${2:?--proxy-url needs a URL}; shift 2 ;;
-    --replace-adapter) REPLACE_ADAPTER=true; shift ;;
     -h|--help) sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
 
 "$ROOT/platform/linux/build.sh" >/dev/null
-
-is_adapter() {
-  [ -x "$1" ] || return 1
-  timeout 10 "$1" --version 2>/dev/null | head -n 1 | grep -q '^raft-agent-adapter '
-}
 
 # Check every PATH entry plus the link target, mirroring the Windows
 # installer's collision check: a real Grok installation cannot share `grok`.
@@ -52,19 +45,8 @@ for dir in "${scan_dirs[@]:-}"; do
     target=$(sed -n 's/^exec "\([^"]*\)".*/\1/p' "$candidate" | head -n 1)
     if [ ! -e "$target" ]; then previous+=("$candidate"); continue; fi
   fi
-  if [ "$REPLACE_ADAPTER" != true ]; then
-    if is_adapter "$candidate"; then
-      echo "Another adapter checkout owns $candidate. Re-run with --replace-adapter to migrate it." >&2
-    else
-      echo "Another grok exists at $candidate. A real Grok installation cannot share this slot." >&2
-    fi
-    exit 1
-  fi
-  if ! is_adapter "$candidate"; then
-    echo "Refusing to replace $candidate: it does not identify as raft-agent-adapter." >&2
-    exit 1
-  fi
-  previous+=("$candidate")
+  echo "Another grok exists at $candidate. Only one grok can own this slot: remove it, or run the other adapter checkout's uninstall.sh." >&2
+  exit 1
 done
 
 mkdir -p "$BIN_DIR" "$ROOT/.local"

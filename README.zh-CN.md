@@ -75,7 +75,7 @@ cd raft-agent-adapter
 
 `Refresh-Models.ps1` 会读取各模型的原生思考选项；`Test-Adapter.ps1` 会检查编译后启动器的 ACP 握手和模型发现。两者都会访问本机 Devin CLI，均不会提交模型推理提示。配置检查失败时，先确认官方 Devin 登录和网络正常。
 
-若已存在另一个 `grok.exe`，安装会停止，真实 Grok 安装无法直接共用此入口。迁移**本适配器的旧目录**时，先停止相关 Agent，再执行 `Install.ps1 -ReplaceAdapter`。安装器会核对旧程序的适配器身份，并替换其用户 PATH 条目；原用户 PATH 会备份到被 Git 忽略的本地安装状态中。Linux 下对应命令为 `install.sh --replace-adapter`。改名之前安装的入口（身份为 `raft-devin-adapter`）会被拒绝替换：请先在其原目录运行 `uninstall.sh` 或 `Uninstall.ps1`。
+若已存在另一个 `grok.exe`，安装会停止：真实 Grok 安装无法共用此入口，同一时间也只能由一个适配器检出目录占用它。请先在另一个检出目录运行 `Uninstall.ps1`。原用户 PATH 会备份到被 Git 忽略的本地安装状态中。Linux 下若 PATH 上已有其他 `grok`，`install.sh` 同样会停止，请先在该检出目录运行 `uninstall.sh`。
 
 ## DeepSeek Harness 后端
 
@@ -150,7 +150,7 @@ platform/linux/uninstall.sh        # Linux
 .\platform\windows\Uninstall.ps1   # Windows
 ```
 
-卸载会从 PATH 移除此目录的入口（Linux 为 `~/.local/bin/grok` 引导脚本，Windows 为用户 PATH 条目），保留源码、后端会话和其他 PATH 项。重启 Computer 或重新扫描运行时以继承变化，并停止或重新配置使用此入口的 Agent。此前迁移掉的旧适配器入口不会自动恢复。
+卸载会从 PATH 移除此目录的入口（Linux 为 `~/.local/bin/grok` 引导脚本，Windows 为用户 PATH 条目），保留源码、后端会话和其他 PATH 项。重启 Computer 或重新扫描运行时以继承变化，并停止或重新配置使用此入口的 Agent。
 
 ## 开发与验证
 

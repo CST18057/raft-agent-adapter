@@ -75,7 +75,7 @@ If your local PowerShell policy blocks a script you have reviewed, you can run t
 
 `Refresh-Models.ps1` discovers thinking choices for each native model. `Test-Adapter.ps1` checks the compiled launcher's ACP handshake and model discovery. Both contact your installed Devin CLI; neither submits an inference prompt. If configuration checks fail, verify official Devin login and connectivity first.
 
-If another `grok.exe` exists, installation stops. A real Grok installation cannot directly share this slot. To migrate an **older checkout of this adapter**, stop its agents and run `Install.ps1 -ReplaceAdapter`; the installer verifies the old executable's adapter identity before replacing its PATH entry. It preserves the previous user PATH in ignored local installation state. On Linux the equivalent is `install.sh --replace-adapter`. Launchers from before the rename, which identify as `raft-devin-adapter`, are refused: run that checkout's `uninstall.sh` or `Uninstall.ps1` first.
+If another `grok.exe` exists, installation stops: a real Grok installation cannot share this slot, and only one checkout of this adapter can own it. Run the other checkout's `Uninstall.ps1` first. The installer keeps a copy of your previous user PATH in ignored local installation state. On Linux, `install.sh` stops the same way if another `grok` is on PATH; run that checkout's `uninstall.sh` first.
 
 ## DeepSeek Harness backend
 
@@ -150,7 +150,7 @@ platform/linux/uninstall.sh        # Linux
 .\platform\windows\Uninstall.ps1   # Windows
 ```
 
-Uninstall removes this checkout's entry from PATH (the `~/.local/bin/grok` trampoline on Linux; the user PATH entry on Windows). It preserves source files, Devin sessions, and unrelated PATH entries. Restart the Computer or rescan runtimes to inherit the change, and stop or reconfigure agents using this slot. A previously migrated adapter entry is not automatically restored.
+Uninstall removes this checkout's entry from PATH (the `~/.local/bin/grok` trampoline on Linux; the user PATH entry on Windows). It preserves source files, agent sessions, and unrelated PATH entries. Restart the Computer or rescan runtimes to inherit the change, and stop or reconfigure agents using this slot.
 
 ## Development and checks
 

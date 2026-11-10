@@ -52,6 +52,6 @@ The offline test peer is independently authored and never invokes a model or too
 | Proxy connection failure | Ensure the configured local proxy is running and the Computer process has the intended configuration/environment |
 | Build cannot overwrite launcher | Stop agents using this checkout before rebuilding |
 | Node executable no longer exists | Reinstall/select Node 22+, rebuild (`build.sh` / `Build.ps1`), and restart the agents |
-| `grok` on PATH resolves elsewhere | Another `grok` earlier in PATH shadows `~/.local/bin/grok`; move it or use `--replace-adapter` if it is an older install of this adapter under the current name |
+| `grok` on PATH resolves elsewhere | Another `grok` earlier in PATH shadows `~/.local/bin/grok`; remove it with that checkout's uninstall script, then reinstall |
 
 Include sanitized errors and versions in an issue. Do not attach account files, raw transcripts, or full environment/PATH dumps.

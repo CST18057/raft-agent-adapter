@@ -52,7 +52,7 @@ The launcher resolves the checkout relative to itself. Both platforms record the
 ### PATH installation
 
 - **Windows**: the checkout's `bin/` directory is prepended to the persisted user PATH and the current shell's PATH.
-- **Linux**: `install.sh` writes `~/.local/bin/grok`, a two-line trampoline that `exec`s this checkout's `bin/grok`. `~/.local/bin` is on PATH for standard login sessions and is also Raft's POSIX fallback discovery directory when `which grok` fails. `DEVIN_ADAPTER_BIN_DIR` overrides the target directory.
+- **Linux**: `install.sh` writes `~/.local/bin/grok`, a two-line trampoline that `exec`s this checkout's `bin/grok`. `~/.local/bin` is on PATH for standard login sessions and is also Raft's POSIX fallback discovery directory when `which grok` fails. `RAFT_ADAPTER_BIN_DIR` overrides the target directory.
 
 ## What Raft sends on the wire
 

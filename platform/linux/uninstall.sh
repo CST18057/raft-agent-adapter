@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)
-BIN_DIR=${DEVIN_ADAPTER_BIN_DIR:-"$HOME/.local/bin"}
+BIN_DIR=${RAFT_ADAPTER_BIN_DIR:-"$HOME/.local/bin"}
 LINK="$BIN_DIR/grok"
 
 # Only delete a trampoline that points at this checkout; never touch a foreign
