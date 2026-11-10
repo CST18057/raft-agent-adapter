@@ -7,9 +7,7 @@
 [![Status: Experimental](https://img.shields.io/badge/status-experimental-yellow.svg)](docs/compatibility.md)
 [![GitHub stars](https://img.shields.io/github/stars/sealpp/raft-devin-adapter?style=social)](https://github.com/sealpp/raft-devin-adapter/stargazers)
 
-**Have Devin *and* want agents in [Raft](https://raft.build)? You shouldn't have to choose.**
-
-Raft's internal agents bind to a runtime slot called **Grok Build**. This adapter makes your installed Devin CLI answer that slot — same agent UX, real Devin underneath: native session resume, mid-turn message injection, per-model thinking controls. Windows and Linux; nothing inside Raft gets patched.
+**Run your Raft agents on Devin.** Pick a `Devin · …` model in Raft, message your agent, and the replies are real Devin — streamed, resumable, with thinking controls — on Windows and Linux.
 
 ```mermaid
 flowchart LR
@@ -18,11 +16,11 @@ flowchart LR
     C --> D[Devin CLI ACP]
 ```
 
-It translates the two ACP dialects and forwards everything between them: prompts, mid-turn messages, permission requests, streamed updates, usage. Nothing inside Raft is patched — the adapter only adds a `grok` executable to your PATH that launches the real Devin CLI.
+The adapter translates between the two ACP dialects: Raft sees a Grok runtime, Devin sees an ACP host. Prompts, mid-turn messages, permission requests, streamed updates and usage data pass through both ways, and native Devin sessions can resume later without replaying history. Nothing inside Raft is patched — install just adds a `grok` executable to your PATH.
 
-This is an **experimental community project**, independently maintained and unaffiliated with Raft, Cognition, or xAI. The runtime selector still says **Grok Build** — the adapter occupies that local executable slot. See [compatibility and limits](docs/compatibility.md) before installing.
+Heads-up before you install: this is an experimental community project, unaffiliated with Raft, Cognition, or xAI, and the runtime selector will keep saying **Grok Build** — that's expected. [Compatibility and limits](docs/compatibility.md) is worth a skim.
 
-If this brings Devin into your Raft workflow, **[give the project a Star](https://github.com/sealpp/raft-devin-adapter)** — reports with CLI versions and reproducible cases are especially useful.
+If it works for you, a [star](https://github.com/sealpp/raft-devin-adapter) helps other people find it. Bug reports with CLI versions and repro steps are gold.
 
 ## What works
 

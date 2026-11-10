@@ -7,9 +7,7 @@
 [![状态：实验性](https://img.shields.io/badge/status-experimental-yellow.svg)](docs/compatibility.md)
 [![GitHub stars](https://img.shields.io/github/stars/sealpp/raft-devin-adapter?style=social)](https://github.com/sealpp/raft-devin-adapter/stargazers)
 
-**有 Devin 账号，又想在 [Raft](https://raft.build) 里跑 Agent？你不必二选一。**
-
-Raft 内部 Agent 绑定的运行时槽位叫 **Grok Build**——这个适配器让你本机的 Devin CLI 直接应答这个槽位：界面体验不变，底下跑的是真 Devin。原生会话恢复、执行中消息注入、按模型的思考强度控制。Windows / Linux 均可，不动 Raft 本身。
+**让你的 Raft Agent 跑在 Devin 上。** 在 Raft 里选一个 `Devin · …` 模型，给 Agent 发消息，回来的就是真实 Devin 的回复——流式输出、可续会话、可调思考强度，Windows 和 Linux 都行。
 
 ```mermaid
 flowchart LR
@@ -18,11 +16,11 @@ flowchart LR
     C --> D[Devin CLI ACP]
 ```
 
-适配器负责翻译两套 ACP 方言并在两者之间转发一切：提示、中途消息、权限请求、流式更新和用量。不修改 Raft 任何文件——只是向你的 PATH 添加一个 `grok` 可执行文件，由它拉起真实的 Devin CLI。
+适配器在两头各说各的协议：对 Raft 它是一个 Grok 运行时，对 Devin 它是一个 ACP 主机。提示、中途消息、权限请求、流式更新和用量都如实转发，已有的 Devin 会话也能直接续上，不会把历史重放进 Raft。不改 Raft 任何文件——安装只是往 PATH 加一个 `grok` 可执行文件。
 
-这是一个实验性社区项目，与 Raft、Cognition、xAI 没有隶属关系。界面上的运行时仍显示为 **Grok Build**，适配器会占用本机这一可执行文件入口。安装前请阅读[兼容范围与限制](docs/compatibility.md)。
+装之前先说清楚：这是实验性社区项目，跟 Raft、Cognition、xAI 没有隶属关系，运行时选择器会一直显示 **Grok Build**——属正常现象。建议先扫一眼[兼容范围与限制](docs/compatibility.md)。
 
-如果它解决了你把 Devin 接入 Raft 的问题，欢迎 **[点一个 Star](https://github.com/sealpp/raft-devin-adapter)**，关注后续兼容更新。也欢迎附带 CLI 版本和复现步骤提交反馈。
+好用的话点个 [star](https://github.com/sealpp/raft-devin-adapter)，让更多人能找到它。报 bug 时带上 CLI 版本和复现步骤，最有帮助。
 
 ## 已实现能力
 
