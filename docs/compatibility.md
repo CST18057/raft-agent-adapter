@@ -1,6 +1,6 @@
 # Compatibility and validation
 
-Version 0.3.0 (not yet published) adds DeepSeek Harness (`backend: "dsh"`) alongside Devin, and renames the project to `raft-agent-adapter`. Protocol behavior depends on the installed Raft and backend versions. Please include all three versions when reporting a regression.
+Version 0.3.0 adds DeepSeek Harness (`backend: "dsh"`) alongside Devin. Protocol behavior depends on the installed Raft and backend versions. Please include all three versions when reporting a regression.
 
 ## Verified scope
 
