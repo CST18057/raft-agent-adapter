@@ -28,6 +28,25 @@ jobs:
           $env:RAFT_ADAPTER_CONFIG = "$env:TEMP/raft-adapter-fake.json"
           $env:MOCK_STATE_FILE = "$env:TEMP/raft-adapter-fake-sessions.json"
           node scripts/smoke.mjs --launcher
+      - name: Smoke-test Windows install, PATH launch, and uninstall cycle
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          node scripts/fake-peer-config.mjs "$env:TEMP/raft-adapter-fake.json"
+          $env:RAFT_ADAPTER_CONFIG = "$env:TEMP/raft-adapter-fake.json"
+          $env:MOCK_STATE_FILE = "$env:TEMP/raft-adapter-fake-sessions.json"
+          ./platform/windows/Install.ps1
+          $adapterBin = (Resolve-Path ./bin).Path
+          if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -notcontains $adapterBin) { throw 'Install.ps1 did not add the adapter to the user PATH.' }
+          $grok = Get-Command grok.exe -ErrorAction SilentlyContinue
+          if (-not $grok -or $grok.Source -ine (Join-Path $adapterBin 'grok.exe')) { throw 'grok.exe does not resolve to this checkout after Install.ps1.' }
+          node docker/probe.mjs --via-path --expect-models
+          if ($LASTEXITCODE -ne 0) { throw 'Full chain through PATH grok failed.' }
+          ./platform/windows/Uninstall.ps1
+          if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -contains $adapterBin) { throw 'Uninstall.ps1 left the adapter in the user PATH.' }
+          if (Get-Command grok.exe -ErrorAction SilentlyContinue) { throw 'grok.exe still resolves after Uninstall.ps1.' }
+          ./platform/windows/Install.ps1
+          if (-not (Get-Command grok.exe -ErrorAction SilentlyContinue)) { throw 'grok.exe does not resolve after reinstalling.' }
       - name: Build Linux launcher and smoke-test the full chain
         if: runner.os == 'Linux'
         run: |
