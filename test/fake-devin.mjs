@@ -6,12 +6,14 @@ import { createInterface } from 'node:readline';
 const send = message => process.stdout.write(JSON.stringify(message) + '\n');
 const notify = (sessionId, text) => send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } } });
 const choices = [{ value: 'swe-2-high', name: 'SWE-2' }, { value: 'gpt-lite-none', name: 'GPT Lite' }];
+const modes = ['accept-edits', 'smart', 'ask', 'plan', 'bypass'];
 const sessions = new Map();
 const hostRequests = new Map();
 let counter = 0;
 function config(session) {
   const efforts = session.model === 'swe-2-high' ? ['medium', 'high', 'max'] : ['none', 'low', 'xhigh'];
   return { configOptions: [
+    { id: 'mode', currentValue: session.mode ?? 'accept-edits', options: modes.map(value => ({ value, name: value })) },
     { id: 'model', currentValue: session.model, options: choices },
     { id: 'thought_level', currentValue: session.effort, options: efforts.map(value => ({ value, name: value })) }
   ] };
@@ -22,7 +24,7 @@ async function handle(method, params) {
   if (method === 'authenticate') return {};
   if (method === 'session/new') {
     const sessionId = `fixture-${++counter}`;
-    const session = { model: 'swe-2-high', effort: 'high' };
+    const session = { model: 'swe-2-high', effort: 'high', mode: 'accept-edits' };
     sessions.set(sessionId, session); persist();
     return { sessionId, ...config(session) };
   }
@@ -42,6 +44,10 @@ async function handle(method, params) {
       if (!choices.some(model => model.value === params.value)) throw new Error('Unknown model');
       session.model = params.value; session.effort = params.value === 'swe-2-high' ? 'high' : 'none';
     } else if (params.configId === 'thought_level') session.effort = params.value;
+    else if (params.configId === 'mode') {
+      if (!modes.includes(params.value)) throw new Error(`Unknown permission mode: ${params.value}`);
+      session.mode = params.value;
+    }
     persist(); return config(session);
   }
   if (method === 'session/prompt') {

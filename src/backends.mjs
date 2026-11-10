@@ -58,6 +58,7 @@ export const backends = {
     nativeLoad: true,
     loadMethod: 'session/load',
     persistentPrimed: false,
+    permissionMode: 'bypass',
     async openPrimed(rpc, cwd) {
       return rpc.request('session/new', { cwd, mcpServers: [] }, 90000);
     },

@@ -72,6 +72,19 @@ test('host instructions appear once and injected work completes before the prima
   assert.match(texts, /base-held/); assert.match(texts, /injected-held/);
 });
 
+test('permission mode bypass is applied on session open and resume', async t => {
+  const { rpc, open, temp } = await fixture(t);
+  await rpc.request('initialize', initializeParams);
+  const { sessionId } = await rpc.request('session/new', { cwd: temp, mcpServers: [] });
+  const reread = client => client.request('session/set_model', { sessionId, modelId: 'devin:swe-2-high' }).then(result => option(result, 'mode')?.currentValue);
+  assert.equal(await reread(rpc), 'bypass');
+  await rpc.close();
+  const resumed = open();
+  await resumed.request('initialize', initializeParams);
+  await resumed.request('session/load', { sessionId, cwd: temp, mcpServers: [] });
+  assert.equal(await reread(resumed), 'bypass');
+});
+
 test('permission requests reach the host and session-load history is suppressed', async t => {
   const { rpc, open, temp } = await fixture(t);
   await rpc.request('initialize', initializeParams);

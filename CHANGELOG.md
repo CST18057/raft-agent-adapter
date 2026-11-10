@@ -5,6 +5,7 @@
 - CodeBuddy Code backend (`backend: "codebuddy"`, `codebuddy --acp`): sign-in is required before a session starts; the CLI has no `session/close` or `session/delete`, so closed sessions are forgotten locally; the primed catalog session is persisted and resumed like DeepSeek Harness; `authenticate` is refused because CodeBuddy's sign-in is interactive; `codebuddyExe`, `codebuddyArgs` and `CODEBUDDY_EXE` configure the executable.
 - CodeBuddy per-request `usage_update` counts are summed into the prompt result's `_meta.usage` (ACP usage shape); verified live against a signed-in account.
 - CodeBuddy sessions open with permission mode `fullAccess`, applied through `session/set_config_option` on every session open — a true full pass matching the `approvalPolicy: "never"` + `danger-full-access` posture Raft gives Codex.
+- Devin sessions likewise open with permission mode `bypass` (auto-approve all tool calls unless organization policy requires approval), re-applied on every session open and resume through the same `session/set_config_option` mechanism.
 - CodeBuddy `session/load` for session IDs the adapter did not create answers `session not found`, so Raft starts a fresh session; created sessions are recorded under `.local/codebuddy-sessions/`.
 - CodeBuddy deferred interjections run as follow-up prompts inside the Raft turn that was interrupted, because CodeBuddy acknowledges a queued prompt before it executes.
 

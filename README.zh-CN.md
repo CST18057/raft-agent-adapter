@@ -34,6 +34,7 @@ flowchart LR
 - Devin 专用：中途消息通过 Devin 原生 mid-turn prompt 能力送达。
 - dsh 专用：dsh 拒绝同会话第二个在途 prompt，中途消息会入队，在当前轮结束后自动作为下一轮提示补发。
 - CodeBuddy Code 专用：在途消息会入队，在当前轮结束后作为下一轮提示投递。
+- Devin 和 CodeBuddy Code 的会话都以各自最宽松的权限模式打开（`bypass` / `fullAccess`）——与 Raft 给 Codex 的"不询问"姿态一致。
 
 Devin CLI 已在 Linux 上完成**真实端到端验证**：真实 Raft 服务器经由 Raft Computer 1.0.67 → 本适配器 → 已登录的 Devin CLI 3000.12.32 驱动 Agent，向其发送 DM 返回了真实模型推理回复。该次验证早于多后端重构；DeepSeek Harness 尚未对真实 `dsh` 二进制完成验证。CodeBuddy Code 2.179.3 已通过适配器接入国内版已登录账号完成验证：握手、含逐模型思考档位的 17 个模型目录、模型与思考强度选择、一次以 `end_turn` 结束的真实 prompt，以及跨进程的会话加载。在途行为已用两条重叠的 prompt 检查：CodeBuddy 会排队第二条并在第一条结束后执行，但会立即确认。权限请求尚未验证。此前不登录账号的检查覆盖了握手、思考档位目录、适配器本地删除会话和未登录拒绝。集成最初在 Windows 上使用 Raft Computer 1.0.63 验证。完整证据分级见[验证矩阵](docs/compatibility.md)。
 
