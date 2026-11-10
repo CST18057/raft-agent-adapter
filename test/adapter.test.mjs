@@ -9,10 +9,22 @@ import { Rpc, initializeParams } from '../src/rpc.mjs';
 import { projectRoot } from '../src/config.mjs';
 import { option, reasoningMeta, catalogKey } from '../src/model-config.mjs';
 
-async function fixture(t, extraEnv = {}) {
+const fakeModels = [{ value: 'swe-2-high', name: 'SWE-2' }, { value: 'gpt-lite-none', name: 'GPT Lite' }];
+
+async function fixture(t, extraEnv = {}, { catalog = false } = {}) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'raft-devin-test-'));
   const configFile = path.join(temp, 'config.json');
   fs.writeFileSync(configFile, JSON.stringify({ backend: 'devin', devinExe: process.execPath, devinArgs: [path.join(projectRoot, 'test/fake-devin.mjs')] }));
+  if (catalog) {
+    fs.writeFileSync(path.join(temp, 'model-catalog.json'), JSON.stringify({
+      schema: 1, backend: 'devin',
+      key: catalogKey(process.execPath, fakeModels),
+      models: {
+        'swe-2-high': { efforts: ['medium', 'high', 'max'], defaultEffort: 'high' },
+        'gpt-lite-none': { efforts: ['none', 'low', 'xhigh'], defaultEffort: 'none' }
+      }
+    }));
+  }
   const env = { ...process.env, RAFT_ADAPTER_CONFIG: configFile, RAFT_ADAPTER_LOCAL: temp, MOCK_STATE_FILE: path.join(temp, 'sessions.json'), ...extraEnv };
   const start = () => new Rpc(process.execPath, [path.join(projectRoot, 'src/adapter.mjs'), 'agent', 'stdio'], { cwd: temp, env });
   const clients = [];
@@ -36,9 +48,12 @@ test('reasoning metadata preserves native defaults and filters unsupported Raft 
 });
 
 test('handshake exposes SWE-2 thinking and selection returns the applied Max configuration', async t => {
-  const { rpc } = await fixture(t);
+  const { rpc } = await fixture(t, {}, { catalog: true });
   const init = await rpc.request('initialize', initializeParams);
-  const swe = init._meta.modelState.availableModels[0];
+  const [swe, lite] = init._meta.modelState.availableModels;
+  assert.equal(swe.modelId, 'devin:swe-2'); // family id: the level stays a separate choice
+  assert.equal(lite.modelId, 'devin:gpt-lite');
+  assert.equal(init._meta.modelState.currentModelId, 'devin:swe-2');
   assert.deepEqual(swe._meta.reasoningEfforts, ['medium', 'high', 'max']);
   assert.equal(swe._meta.reasoningEffort, 'high');
   const session = await rpc.request('session/new', { cwd: process.cwd(), mcpServers: [] });
@@ -48,12 +63,41 @@ test('handshake exposes SWE-2 thinking and selection returns the applied Max con
   assert.equal(option(max, 'thought_level').currentValue, 'max');
   await assert.rejects(select(swe.modelId, 'low'), /Available: medium, high, max/);
   assert.equal(option(await select(swe.modelId), 'thought_level').currentValue, 'high');
-  assert.equal(option(await select('devin:gpt-lite-none'), 'thought_level').currentValue, 'none');
-  assert.equal(option(await select('devin:gpt-lite-none', 'xhigh'), 'thought_level').currentValue, 'xhigh');
+  assert.equal(option(await select('devin:gpt-lite'), 'thought_level').currentValue, 'none');
+  assert.equal(option(await select('devin:gpt-lite', 'xhigh'), 'thought_level').currentValue, 'xhigh');
+  // Profiles saved before family ids still resolve their raw base ids.
+  assert.equal(option(await select('devin:swe-2-high'), 'model').currentValue, 'swe-2-high');
   await assert.rejects(select('grok-model', 'high'), /different adapter backend.*current: Devin/);
+  await assert.rejects(select('devin:no-such-model'), /not a model this Devin backend offers/);
   await assert.rejects(rpc.request('unsupported/extension', {}), /Unsupported Raft\/Grok extension/);
   await rpc.request('session/delete', { sessionId: session.sessionId });
   await assert.rejects(rpc.request('session/prompt', { sessionId: session.sessionId, prompt: [] }), /Session not opened/);
+});
+
+test('combo ids apply the embedded effort and set_config_option drives model and thinking directly', async t => {
+  const { rpc } = await fixture(t, {}, { catalog: true });
+  await rpc.request('initialize', initializeParams);
+  const session = await rpc.request('session/new', { cwd: process.cwd(), mcpServers: [] });
+  const set = (configId, value) => rpc.request('session/set_config_option', { sessionId: session.sessionId, configId, value });
+  // devin:swe-2-max is a hand-written combo: family swe-2 + level max.
+  const combo = await rpc.request('session/set_model', { sessionId: session.sessionId, modelId: 'devin:swe-2-max' });
+  assert.equal(option(combo, 'model').currentValue, 'swe-2-high');
+  assert.equal(option(combo, 'thought_level').currentValue, 'max');
+  assert.equal(option(await set('thought_level', 'medium'), 'thought_level').currentValue, 'medium');
+  assert.equal(option(await set('model', 'devin:gpt-lite'), 'model').currentValue, 'gpt-lite-none');
+  assert.equal(option(await set('reasoning_effort', 'xhigh'), 'thought_level').currentValue, 'xhigh'); // alias → thought_level
+  await assert.rejects(set('thought_level', 'high'), /invalid|not offer|Unknown|refus/i);
+  await rpc.request('session/delete', { sessionId: session.sessionId });
+});
+
+test('thinking option category is stamped when the backend omits it', async t => {
+  const { rpc } = await fixture(t, { MOCK_NO_CATEGORY: '1' });
+  await rpc.request('initialize', initializeParams);
+  const session = await rpc.request('session/new', { cwd: process.cwd(), mcpServers: [] });
+  assert.equal(option(session, 'thought_level').category, 'thought_level');
+  const result = await rpc.request('session/set_config_option', { sessionId: session.sessionId, configId: 'thought_level', value: 'max' });
+  assert.equal(option(result, 'thought_level').category, 'thought_level');
+  await rpc.request('session/delete', { sessionId: session.sessionId });
 });
 
 test('host instructions appear once and injected work completes before the primary turn ends', async t => {

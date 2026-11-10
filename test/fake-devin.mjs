@@ -12,10 +12,11 @@ const hostRequests = new Map();
 let counter = 0;
 function config(session) {
   const efforts = session.model === 'swe-2-high' ? ['medium', 'high', 'max'] : ['none', 'low', 'xhigh'];
+  const category = id => process.env.MOCK_NO_CATEGORY === '1' ? {} : { category: id === 'thought_level' ? 'thought_level' : id };
   return { configOptions: [
-    { id: 'mode', currentValue: session.mode ?? 'accept-edits', options: modes.map(value => ({ value, name: value })) },
-    { id: 'model', currentValue: session.model, options: choices },
-    { id: 'thought_level', currentValue: session.effort, options: efforts.map(value => ({ value, name: value })) }
+    { id: 'mode', ...category('mode'), currentValue: session.mode ?? 'accept-edits', options: modes.map(value => ({ value, name: value })) },
+    { id: 'model', ...category('model'), currentValue: session.model, options: choices },
+    { id: 'thought_level', ...category('thought_level'), currentValue: session.effort, options: efforts.map(value => ({ value, name: value })) }
   ] };
 }
 function persist() { if (process.env.MOCK_STATE_FILE) fs.writeFileSync(process.env.MOCK_STATE_FILE, JSON.stringify([...sessions])); }
@@ -43,7 +44,11 @@ async function handle(method, params) {
     if (params.configId === 'model') {
       if (!choices.some(model => model.value === params.value)) throw new Error('Unknown model');
       session.model = params.value; session.effort = params.value === 'swe-2-high' ? 'high' : 'none';
-    } else if (params.configId === 'thought_level') session.effort = params.value;
+    } else if (params.configId === 'thought_level') {
+      const efforts = session.model === 'swe-2-high' ? ['medium', 'high', 'max'] : ['none', 'low', 'xhigh'];
+      if (!efforts.includes(params.value)) throw new Error(`Unknown thought_level for ${session.model}: ${params.value}`);
+      session.effort = params.value;
+    }
     else if (params.configId === 'mode') {
       if (!modes.includes(params.value)) throw new Error(`Unknown permission mode: ${params.value}`);
       session.mode = params.value;

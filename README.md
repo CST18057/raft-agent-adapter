@@ -120,7 +120,7 @@ Raft does not know which backend sits behind the `grok` slot — switching `back
 
 ## Select SWE-2 Max
 
-In Raft, choose the **Devin SWE-2 model** and set **Reasoning effort → Max**. Keep Devin's model identifier as `swe-2-high`: Devin exposes its thinking level separately.
+In Raft, choose the **Devin SWE-2 model** (`devin:swe-2`) and set **Reasoning effort → Max**. The model list shows family IDs — the level lives in the separate effort field.
 
 | Raft choice | Native Devin configuration |
 | --- | --- |
@@ -128,7 +128,7 @@ In Raft, choose the **Devin SWE-2 model** and set **Reasoning effort → Max**. 
 | Reasoning: Medium / High / Max | `thought_level = medium / high / max` |
 | Reasoning: Default | The selected model's native preset; SWE-2 currently uses High |
 
-There is no fabricated `swe-2-max` model ID. The adapter validates the offered options and confirms the value returned by Devin. Unsupported strengths fail explicitly. For models whose native preset is `none`, Raft's **Default** retains that preset, because Raft's Grok parser does not accept `none` as an explicit strength.
+No `swe-2-max` entry is fabricated in the list — Devin only accepts its base IDs, and the level is a separate option. A hand-written combo like `devin:swe-2-max` still resolves to `swe-2-high` + `max` if it ever arrives, and saved profiles with the raw base ID `devin:swe-2-high` keep working. The adapter validates the offered options and confirms the value returned by Devin. Unsupported strengths fail explicitly. For models whose native preset is `none`, Raft's **Default** retains that preset, because Raft's Grok parser does not accept `none` as an explicit strength.
 
 After a Devin CLI update, refresh the catalog (`platform/linux/refresh-models.sh`, `platform\windows\Refresh-Models.ps1`, or `npm run models:refresh`) and refresh Raft's model list. A changed binary or model list invalidates the cached catalog. The currently selected model also exposes its live thinking options.
 

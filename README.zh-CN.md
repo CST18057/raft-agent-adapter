@@ -120,7 +120,7 @@ Raft 并不知道 `grok` 入口后面是哪家后端——切换 `backend` 后�
 
 ## 如何选择 SWE-2 Max
 
-在 Raft 中选择 **Devin 的 SWE-2 模型**，将 **Reasoning effort / 推理强度设为 Max**。保留 Devin 的模型 ID `swe-2-high`，思考等级通过独立参数设置。
+在 Raft 中选择 **Devin 的 SWE-2 模型**（`devin:swe-2`），将 **Reasoning effort / 推理强度设为 Max**。模型列表展示的是家族 ID——档位由独立的推理强度选项承载。
 
 | Raft 中的选择 | Devin 原生配置 |
 | --- | --- |
@@ -128,7 +128,7 @@ Raft 并不知道 `grok` 入口后面是哪家后端——切换 `backend` 后�
 | 推理强度：Medium / High / Max | `thought_level = medium / high / max` |
 | 推理强度：Default | 使用所选模型的原生预设；SWE-2 目前为 High |
 
-不会虚构 `swe-2-max` 模型 ID。适配器校验可用选项，并核对 Devin 返回的实际值；不支持的强度会明确报错。对于原生预设为 `none` 的模型，选择 Raft 的 **Default** 可保留该预设，因为 Raft 的 Grok 解析器不接受显式的 `none` 强度。
+列表里不会虚构 `swe-2-max` 条目——Devin 只接受它的基础 ID，档位是独立选项。手写的组合 ID（如 `devin:swe-2-max`）传入时同样会解析为 `swe-2-high` + `max`，已保存配置中的旧基础 ID（`devin:swe-2-high`）也继续可用。适配器校验可用选项，并核对 Devin 返回的实际值；不支持的强度会明确报错。对于原生预设为 `none` 的模型，选择 Raft 的 **Default** 可保留该预设，因为 Raft 的 Grok 解析器不接受显式的 `none` 强度。
 
 Devin CLI 升级后，请重新刷新模型目录（`platform/linux/refresh-models.sh`、`platform\windows\Refresh-Models.ps1` 或 `npm run models:refresh`）并刷新 Raft 模型列表。CLI 文件或模型列表变化会使旧缓存失效；当前选中模型还会提供实时读取的思考选项。
 

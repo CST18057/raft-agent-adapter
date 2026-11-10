@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Model IDs are now family IDs: a base ID that carries its default thinking level as a suffix (`swe-2-high`) is offered as `devin:swe-2`, so the Raft model dropdown names the model and the reasoning-effort dropdown names the level. Saved profiles with raw base IDs and hand-written combos (`devin:swe-2-max` → `swe-2-high` + `max`) still resolve.
+- `session/set_config_option` is forwarded to the backend (model values get the same family resolution, common thinking-option aliases map to the backend's option), and session responses stamp `category: "thought_level"` on the thinking option when a backend omits it — keeping Raft's generic ACP config surface working for every backend.
 - CodeBuddy Code backend (`backend: "codebuddy"`, `codebuddy --acp`): sign-in is required before a session starts; the CLI has no `session/close` or `session/delete`, so closed sessions are forgotten locally; the primed catalog session is persisted and resumed like DeepSeek Harness; `authenticate` is refused because CodeBuddy's sign-in is interactive; `codebuddyExe`, `codebuddyArgs` and `CODEBUDDY_EXE` configure the executable.
 - CodeBuddy per-request `usage_update` counts are summed into the prompt result's `_meta.usage` (ACP usage shape); verified live against a signed-in account.
 - CodeBuddy sessions open with permission mode `fullAccess`, applied through `session/set_config_option` on every session open — a true full pass matching the `approvalPolicy: "never"` + `danger-full-access` posture Raft gives Codex.

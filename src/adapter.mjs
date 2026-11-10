@@ -3,7 +3,7 @@ import { createInterface } from 'node:readline';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Rpc } from './rpc.mjs';
-import { option, thinkingInfo, catalogKey, reasoningMeta } from './model-config.mjs';
+import { option, thinkingInfo, catalogKey, reasoningMeta, modelMap, stampCategories } from './model-config.mjs';
 import { loadConfig, version, localDir } from './config.mjs';
 import { backends, readBackendState, writeBackendState } from './backends.mjs';
 
@@ -70,25 +70,76 @@ function knownSession(id) {
   return Boolean(marker && existsSync(marker));
 }
 
-function modelResult(session) {
-  const modelOption = option(session, 'model');
-  const entries = backend.modelEntries(session, option);
-  let catalog;
+function loadCatalog(models) {
   try {
     const loaded = JSON.parse(readFileSync(config.catalogPath, 'utf8'));
-    if (loaded.schema === 1 && loaded.key === catalogKey(config.executable, modelOption?.options ?? [])) catalog = loaded.models;
-    else console.error('[raft-agent-adapter] Thinking options changed; run `npm run models:refresh`, then refresh the model list in Raft.');
+    if (loaded.schema === 1 && loaded.key === catalogKey(config.executable, models)) return loaded.models;
+    console.error('[raft-agent-adapter] Thinking options changed; run `npm run models:refresh`, then refresh the model list in Raft.');
   } catch {
     console.error('[raft-agent-adapter] No verified thinking catalog; run `npm run models:refresh` to discover options for all models.');
   }
+  return null;
+}
+
+// Raft-facing model surface: backend base ids map to families (swe-2-high →
+// swe-2), so the model dropdown names the model and the effort dropdown names
+// the level. Rebuilt whenever a session response advertises a changed model
+// list — an effort-only change cannot alter the split, so it stays stable.
+let surface = null;
+let surfaceKey = '';
+function rebuildSurface(session) {
+  const modelOption = option(session, 'model');
+  const entries = backend.modelEntries(session, option);
+  const catalog = loadCatalog(modelOption?.options ?? []);
+  const current = modelOption?.currentValue;
+  const map = modelMap(entries, value => catalog?.[value]?.defaultEffort
+    ?? (value === current ? thinkingInfo(session, backend.thinkingConfigId).defaultEffort : undefined));
+  surface = { entries, catalog, map };
+  surfaceKey = entries.map(e => e.value).join('');
+}
+function observeConfig(result) {
+  const entries = backend.modelEntries(result, option);
+  if (entries.length && entries.map(e => e.value).join('') !== surfaceKey) rebuildSurface(result);
+}
+
+function modelResult(session) {
+  rebuildSurface(session);
+  const { entries, catalog, map } = surface;
+  const modelOption = option(session, 'model');
   const fallback = config.defaultModel ?? backend.builtinDefaultModel ?? entries[0]?.value ?? '';
   return {
-    currentModelId: `${backend.modelPrefix}${modelOption?.currentValue ?? fallback}`,
+    currentModelId: `${backend.modelPrefix}${map.toRaftId(modelOption?.currentValue ?? fallback)}`,
     availableModels: entries.map(o => ({
-      modelId: `${backend.modelPrefix}${o.value}`, name: backend.agentLabel(o.name),
+      modelId: `${backend.modelPrefix}${map.toRaftId(o.value)}`, name: backend.agentLabel(o.name),
       _meta: reasoningMeta(o.value === modelOption?.currentValue ? thinkingInfo(session, backend.thinkingConfigId) : catalog?.[o.value])
     }))
   };
+}
+
+// Applies a Raft model choice: the family id resolves to the backend base id,
+// then the chosen reasoning effort maps to the backend's thinking option.
+// Legacy base ids (profiles saved before families) and hand-written combos
+// (devin:swe-2-max → swe-2-high + max) resolve too.
+async function applyModel(sessionId, modelId, effort) {
+  const prefixed = modelId?.startsWith(backend.modelPrefix);
+  const raw = prefixed ? modelId.slice(backend.modelPrefix.length) : modelId;
+  const resolved = surface ? surface.map.resolve(raw) : { base: raw };
+  if (!resolved) {
+    if (!prefixed) throw new Error(`"${modelId}" belongs to a different adapter backend (current: ${backend.displayName}). Refresh the model list in Raft and select a ${backend.displayName} · model — or switch adapter.config.json's backend back.`);
+    throw new Error(`"${modelId}" is not a model this ${backend.displayName} backend offers. Refresh the model list in Raft.`);
+  }
+  let result = await rpc.request('session/set_config_option', { sessionId, configId: 'model', value: resolved.base });
+  const requested = effort ?? resolved.effort;
+  if (requested) {
+    const thinking = option(result, backend.thinkingConfigId);
+    if (!thinking) throw new Error(`${backend.displayName} offers no reasoning effort control for this model (requested: ${requested})`);
+    if (!thinking.options?.some(o => o.value === requested)) throw new Error(`${backend.displayName} does not offer requested reasoning effort: ${requested}. Available: ${thinking.options.map(o => o.value).filter(Boolean).join(', ') || 'model default only'}`);
+    result = await rpc.request('session/set_config_option', { sessionId, configId: backend.thinkingConfigId, value: requested });
+    if (option(result, backend.thinkingConfigId)?.currentValue !== requested) throw new Error(`${backend.displayName} did not apply requested reasoning effort: ${requested}`);
+  }
+  observeConfig(result);
+  console.error(`[raft-agent-adapter] Model configured: ${option(result, 'model')?.currentValue}; thinking=${option(result, backend.thinkingConfigId)?.currentValue ?? 'default'}`);
+  return stampCategories(result, backend.thinkingConfigId);
 }
 
 async function releasePrimed() {
@@ -207,25 +258,20 @@ async function handle(method, params) {
         console.error(`[raft-agent-adapter] ${backend.displayName} did not accept permission mode ${backend.permissionMode}: ${error.message}`);
       }
     }
+    observeConfig(opened);
     sessions.set(sessionId, { standingPrompt: meta.systemPromptOverride ?? '', needsInstructions: true, midTurns: new Set(), deferred: [], usageByRequest: new Map() });
-    return { ...opened, sessionId };
+    return stampCategories({ ...opened, sessionId }, backend.thinkingConfigId);
   }
-  if (method === 'session/set_model') {
-    const modelId = params.modelId;
-    if (!modelId?.startsWith(backend.modelPrefix)) {
-      throw new Error(`"${modelId}" belongs to a different adapter backend (current: ${backend.displayName}). Refresh the model list in Raft and select a ${backend.displayName} · model — or switch adapter.config.json's backend back.`);
-    }
-    let result = await rpc.request('session/set_config_option', { sessionId: params.sessionId, configId: 'model', value: modelId.slice(backend.modelPrefix.length) });
-    if (params._meta?.reasoningEffort) {
-      const thinking = option(result, backend.thinkingConfigId);
-      const effort = params._meta.reasoningEffort;
-      if (!thinking) throw new Error(`${backend.displayName} offers no reasoning effort control for this model (requested: ${effort})`);
-      if (!thinking.options?.some(o => o.value === effort)) throw new Error(`${backend.displayName} does not offer requested reasoning effort: ${effort}. Available: ${thinking.options.map(o => o.value).filter(Boolean).join(', ') || 'model default only'}`);
-      result = await rpc.request('session/set_config_option', { sessionId: params.sessionId, configId: backend.thinkingConfigId, value: effort });
-      if (option(result, backend.thinkingConfigId)?.currentValue !== effort) throw new Error(`${backend.displayName} did not apply requested reasoning effort: ${effort}`);
-    }
-    console.error(`[raft-agent-adapter] Model configured: ${option(result, 'model')?.currentValue}; thinking=${option(result, backend.thinkingConfigId)?.currentValue ?? 'default'}`);
-    return result;
+  if (method === 'session/set_model') return applyModel(params.sessionId, params.modelId, params._meta?.reasoningEffort);
+  if (method === 'session/set_config_option') {
+    // Raft's generic ACP path applies model and thinking level through this
+    // method; the grok driver uses session/set_model instead. Forwarding both
+    // keeps the bridge working whichever surface a host chooses.
+    if (params.configId === 'model') return applyModel(params.sessionId, params.value, params._meta?.reasoningEffort);
+    const configId = ['thought_level', 'reasoning_effort', backend.thinkingConfigId].includes(params.configId) ? backend.thinkingConfigId : params.configId;
+    const result = await rpc.request('session/set_config_option', { sessionId: params.sessionId, configId, value: params.value });
+    observeConfig(result);
+    return stampCategories(result, backend.thinkingConfigId);
   }
   if (method === 'session/prompt') return prompt(params);
   if (method === 'session/delete' || method === 'session/close') {
