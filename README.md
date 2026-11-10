@@ -5,8 +5,11 @@
 [![CI](https://github.com/sealpp/raft-devin-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/sealpp/raft-devin-adapter/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Status: Experimental](https://img.shields.io/badge/status-experimental-yellow.svg)](docs/compatibility.md)
+[![GitHub stars](https://img.shields.io/github/stars/sealpp/raft-devin-adapter?style=social)](https://github.com/sealpp/raft-devin-adapter/stargazers)
 
-**Put Devin inside [Raft](https://raft.build) — on Windows and Linux.** Raft's internal agents each bind to a runtime — and **Grok Build** is one of those slots. This adapter makes your installed Devin CLI answer that slot instead, so a Raft agent is driven by Devin — with native session resume, mid-turn message injection, and model thinking controls.
+**Have Devin *and* want agents in [Raft](https://raft.build)? You shouldn't have to choose.**
+
+Raft's internal agents bind to a runtime slot called **Grok Build**. This adapter makes your installed Devin CLI answer that slot — same agent UX, real Devin underneath: native session resume, mid-turn message injection, per-model thinking controls. Windows and Linux; nothing inside Raft gets patched.
 
 ```mermaid
 flowchart LR

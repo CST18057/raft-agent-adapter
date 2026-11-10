@@ -5,8 +5,11 @@
 [![CI](https://github.com/sealpp/raft-devin-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/sealpp/raft-devin-adapter/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![状态：实验性](https://img.shields.io/badge/status-experimental-yellow.svg)](docs/compatibility.md)
+[![GitHub stars](https://img.shields.io/github/stars/sealpp/raft-devin-adapter?style=social)](https://github.com/sealpp/raft-devin-adapter/stargazers)
 
-**把 Devin 装进 [Raft](https://raft.build)——支持 Windows 与 Linux。** Raft 的内部 Agent 各自绑定一个运行时，**Grok Build** 是其中一个槽位。这个适配器让你本机的 Devin CLI 来应答这个槽位，使 Raft Agent 由 Devin 驱动——支持原生会话恢复、执行中消息注入和模型思考强度选择。
+**有 Devin 账号，又想在 [Raft](https://raft.build) 里跑 Agent？你不必二选一。**
+
+Raft 内部 Agent 绑定的运行时槽位叫 **Grok Build**——这个适配器让你本机的 Devin CLI 直接应答这个槽位：界面体验不变，底下跑的是真 Devin。原生会话恢复、执行中消息注入、按模型的思考强度控制。Windows / Linux 均可，不动 Raft 本身。
 
 ```mermaid
 flowchart LR
