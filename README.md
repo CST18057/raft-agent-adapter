@@ -7,7 +7,7 @@
 [![Status: Experimental](https://img.shields.io/badge/status-experimental-yellow.svg)](docs/compatibility.md)
 [![GitHub stars](https://img.shields.io/github/stars/sealpp/raft-devin-adapter?style=social)](https://github.com/sealpp/raft-devin-adapter/stargazers)
 
-**Run your Raft agents on Devin.** Pick a `Devin · …` model in Raft, message your agent, and the replies are real Devin — streamed, resumable, with thinking controls — on Windows and Linux.
+**Raft's internal agents can't use Devin — this adapter fixes that.** Once installed, Devin becomes a real runtime option: `Devin · …` models show up in Raft's model picker, thinking strength maps to Devin's own levels, mid-turn messages get through, sessions resume later. Windows and Linux; Raft itself isn't touched.
 
 ```mermaid
 flowchart LR

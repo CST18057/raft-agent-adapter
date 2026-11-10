@@ -7,7 +7,7 @@
 [![状态：实验性](https://img.shields.io/badge/status-experimental-yellow.svg)](docs/compatibility.md)
 [![GitHub stars](https://img.shields.io/github/stars/sealpp/raft-devin-adapter?style=social)](https://github.com/sealpp/raft-devin-adapter/stargazers)
 
-**让你的 Raft Agent 跑在 Devin 上。** 在 Raft 里选一个 `Devin · …` 模型，给 Agent 发消息，回来的就是真实 Devin 的回复——流式输出、可续会话、可调思考强度，Windows 和 Linux 都行。
+**Raft 的内部 Agent 本来用不了 Devin——这个适配器让它能用。** 装好之后 Devin 就是一个真实运行时：模型列表里出现 `Devin · …` 选项，思考强度按 Devin 自己的档位走，对话中途能插话，会话能续上。Windows 和 Linux 都行，不动 Raft 本身。
 
 ```mermaid
 flowchart LR
