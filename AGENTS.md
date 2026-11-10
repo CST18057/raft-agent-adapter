@@ -31,8 +31,7 @@ Failures: `Another grok exists` means another checkout owns the slot — run its
 - `scripts/`: model catalog refresh, live smoke test, and fake-peer configuration.
 - `platform/`: Windows and Linux launchers, install, uninstall, and test scripts.
 - `docker/`: Linux verification image and ACP probe.
-- `docs/`: architecture, compatibility, and release notes.
-- `me_raft-agent-adapter/`: maintains internal design documents and other tools.
+- `me_raft-agent-adapter/`: maintains internal documentation, design notes, and research tools.
 
 ## Verification
 

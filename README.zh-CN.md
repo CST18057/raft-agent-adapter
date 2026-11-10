@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/sealpp/raft-agent-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/sealpp/raft-agent-adapter/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![状态：实验性](https://img.shields.io/badge/status-experimental-yellow.svg)](docs/compatibility.md)
+![状态：实验性](https://img.shields.io/badge/status-experimental-yellow.svg)
 [![GitHub stars](https://img.shields.io/github/stars/sealpp/raft-agent-adapter?style=social)](https://github.com/sealpp/raft-agent-adapter/stargazers)
 
 **Raft 的内部 Agent 本来用不了 Devin CLI、DeepSeek Harness 和 CodeBuddy Code——这个适配器让它们能用。** 装好之后所选后端就是一个真实运行时：模型列表里出现带前缀的选项（`Devin · …` / `DSH · …` / `CodeBuddy · …`），思考强度按后端自己的档位走，权限请求、流式更新照常转发，会话能续上。Windows 和 Linux 都行，不动 Raft 本身。
@@ -18,7 +18,7 @@ flowchart LR
 
 适配器在两头各说各的协议：对 Raft 它是一个 Grok 运行时，对后端它是一个 ACP 主机。提示、权限请求、流式更新和用量都如实转发，已有的会话也能直接续上，不会把历史重放进 Raft。不改 Raft 任何文件——安装只是往 PATH 加一个 `grok` 可执行文件。一个适配器实例同时只接一个后端，用 `backend` 配置项选择。
 
-装之前先说清楚：这是实验性社区项目，跟 Raft、Cognition、DeepSeek、xAI 没有隶属关系，运行时选择器会一直显示 **Grok Build**——属正常现象。建议先扫一眼[兼容范围与限制](docs/compatibility.md)。
+装之前先说清楚：这是实验性社区项目，跟 Raft、Cognition、DeepSeek、xAI 没有隶属关系，运行时选择器会一直显示 **Grok Build**——属正常现象。建议先扫一眼下面[已实现能力](#已实现能力)里的验证说明。
 
 好用的话点个 [star](https://github.com/sealpp/raft-agent-adapter)，让更多人能找到它。报 bug 时带上 CLI 版本和复现步骤，最有帮助。
 
@@ -36,7 +36,7 @@ flowchart LR
 - CodeBuddy Code 专用：在途消息会入队，在当前轮结束后作为下一轮提示投递。
 - Devin 和 CodeBuddy Code 的会话都以各自最宽松的权限模式打开（`bypass` / `fullAccess`）——与 Raft 给 Codex 的"不询问"姿态一致。
 
-Devin CLI 已在 Linux 上完成**真实端到端验证**：真实 Raft 服务器经由 Raft Computer 1.0.67 → 本适配器 → 已登录的 Devin CLI 3000.12.32 驱动 Agent，向其发送 DM 返回了真实模型推理回复。该次验证早于多后端重构；DeepSeek Harness 尚未对真实 `dsh` 二进制完成验证。CodeBuddy Code 2.179.3 已通过适配器接入国内版已登录账号完成验证：握手、含逐模型思考档位的 17 个模型目录、模型与思考强度选择、一次以 `end_turn` 结束的真实 prompt，以及跨进程的会话加载。在途行为已用两条重叠的 prompt 检查：CodeBuddy 会排队第二条并在第一条结束后执行，但会立即确认。权限请求尚未验证。此前不登录账号的检查覆盖了握手、思考档位目录、适配器本地删除会话和未登录拒绝。集成最初在 Windows 上使用 Raft Computer 1.0.63 验证。完整证据分级见[验证矩阵](docs/compatibility.md)。
+Devin CLI 已在 Linux 上完成**真实端到端验证**：真实 Raft 服务器经由 Raft Computer 1.0.67 → 本适配器 → 已登录的 Devin CLI 3000.12.32 驱动 Agent，向其发送 DM 返回了真实模型推理回复。该次验证早于多后端重构；DeepSeek Harness 尚未对真实 `dsh` 二进制完成验证。CodeBuddy Code 2.179.3 已通过适配器接入国内版已登录账号完成验证：握手、含逐模型思考档位的 17 个模型目录、模型与思考强度选择、一次以 `end_turn` 结束的真实 prompt，以及跨进程的会话加载。在途行为已用两条重叠的 prompt 检查：CodeBuddy 会排队第二条并在第一条结束后执行，但会立即确认。权限请求尚未验证。此前不登录账号的检查覆盖了握手、思考档位目录、适配器本地删除会话和未登录拒绝。集成最初在 Windows 上使用 Raft Computer 1.0.63 验证。
 
 ## Linux 快速开始
 
@@ -201,9 +201,9 @@ docker run -it raft-agent-adapter bash                      # 交互式 shell
 docker build -f docker/Dockerfile --build-arg INSTALL_RAFT=1 -t raft-agent-adapter .   # 附带 raft-computer
 ```
 
-构建过程会执行离线协议测试、构建启动器、把 `grok` 装上 PATH，并用与 Raft 相同的 ACP 调用序列跑通整条链路——包括不做推理的真实后端 ACP 握手。带认证的测试（`DEVIN_API_KEY`）与 Raft Computer 的连接方式见 [docs/docker.md](docs/docker.md)。
+构建过程会执行离线协议测试、构建启动器、把 `grok` 装上 PATH，并用与 Raft 相同的 ACP 调用序列跑通整条链路——包括不做推理的真实后端 ACP 握手。将 `DEVIN_API_KEY` 传入容器（`docker run --rm -e DEVIN_API_KEY=apk_... raft-agent-adapter`）可覆盖需要认证的检查路径。
 
-参阅[架构](docs/architecture.md)、[贡献说明](CONTRIBUTING.md)、[Docker 环境](docs/docker.md)和[安全反馈](SECURITY.md)。
+参阅[贡献说明](CONTRIBUTING.md)和[安全反馈](SECURITY.md)。
 
 ## 许可证
 

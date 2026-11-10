@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/sealpp/raft-agent-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/sealpp/raft-agent-adapter/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Status: Experimental](https://img.shields.io/badge/status-experimental-yellow.svg)](docs/compatibility.md)
+![Status: Experimental](https://img.shields.io/badge/status-experimental-yellow.svg)
 [![GitHub stars](https://img.shields.io/github/stars/sealpp/raft-agent-adapter?style=social)](https://github.com/sealpp/raft-agent-adapter/stargazers)
 
 **Raft's internal agents can't use Devin CLI, DeepSeek Harness or CodeBuddy Code — this adapter fixes that.** Once installed, your chosen backend becomes a real runtime option: backend-prefixed models (`Devin · …` / `DSH · …` / `CodeBuddy · …`) show up in Raft's model picker, thinking strength maps to the backend's own levels, permission requests and streamed updates pass through, sessions resume later. Windows and Linux; Raft itself isn't touched.
@@ -18,7 +18,7 @@ flowchart LR
 
 The adapter translates between the two ACP dialects: Raft sees a Grok runtime, and the chosen backend sees an ACP host. Prompts, permission requests, streamed updates and usage data pass through both ways, and native sessions can resume later without replaying history. Nothing inside Raft is patched — install just adds a `grok` executable to your PATH. One backend is active per installation, selected by the `backend` setting.
 
-Heads-up before you install: this is an experimental community project, unaffiliated with Raft, Cognition, DeepSeek, or xAI, and the runtime selector will keep saying **Grok Build** — that's expected. [Compatibility and limits](docs/compatibility.md) is worth a skim.
+Heads-up before you install: this is an experimental community project, unaffiliated with Raft, Cognition, DeepSeek, or xAI, and the runtime selector will keep saying **Grok Build** — that's expected. The verification notes under [What works](#what-works) are worth a skim.
 
 If it works for you, a [star](https://github.com/sealpp/raft-agent-adapter) helps other people find it. Bug reports with CLI versions and repro steps are gold.
 
@@ -36,7 +36,7 @@ If it works for you, a [star](https://github.com/sealpp/raft-agent-adapter) help
 - CodeBuddy Code only: active-turn messages are queued and delivered after the current turn, like DeepSeek Harness.
 - Devin and CodeBuddy Code sessions open with the backend's most permissive mode (`bypass` / `fullAccess`) — the same no-approval posture Raft gives Codex.
 
-Devin CLI was verified **live end-to-end** on Linux — a real Raft server drove an agent through Raft Computer 1.0.67 → this adapter → a logged-in Devin CLI 3000.12.32, and a DM returned a real inference reply. That run predates the multi-backend refactor. DeepSeek Harness has not yet been run against a real `dsh` binary. CodeBuddy Code 2.179.3 was run through the adapter with a signed-in China-site account: the handshake, the 17-model catalog with per-model thinking levels, model and thinking selection, one real prompt that finished with `end_turn`, and a cross-process session load. Mid-turn behavior was checked with two overlapping prompts: CodeBuddy queues the second one and runs it after the first, but acknowledges it at once. Permission prompts are not yet validated. Earlier checks without an account covered the handshake, the thinking catalog, adapter-local session deletion, and the sign-in refusal. The integration was originally exercised on Windows with Raft Computer 1.0.63. Full evidence breakdown: [validation matrix](docs/compatibility.md).
+Devin CLI was verified **live end-to-end** on Linux — a real Raft server drove an agent through Raft Computer 1.0.67 → this adapter → a logged-in Devin CLI 3000.12.32, and a DM returned a real inference reply. That run predates the multi-backend refactor. DeepSeek Harness has not yet been run against a real `dsh` binary. CodeBuddy Code 2.179.3 was run through the adapter with a signed-in China-site account: the handshake, the 17-model catalog with per-model thinking levels, model and thinking selection, one real prompt that finished with `end_turn`, and a cross-process session load. Mid-turn behavior was checked with two overlapping prompts: CodeBuddy queues the second one and runs it after the first, but acknowledges it at once. Permission prompts are not yet validated. Earlier checks without an account covered the handshake, the thinking catalog, adapter-local session deletion, and the sign-in refusal. The integration was originally exercised on Windows with Raft Computer 1.0.63.
 
 ## Quick start on Linux
 
@@ -201,9 +201,9 @@ docker run -it raft-agent-adapter bash                      # interactive shell
 docker build -f docker/Dockerfile --build-arg INSTALL_RAFT=1 -t raft-agent-adapter .   # + raft-computer
 ```
 
-The build runs offline protocol tests, builds the launcher, installs `grok` on PATH, and drives the same ACP sequence Raft uses — including a real `devin acp` handshake without inference. See [docs/docker.md](docs/docker.md) for authenticated testing (`DEVIN_API_KEY`) and connecting Raft Computer.
+The build runs offline protocol tests, builds the launcher, installs `grok` on PATH, and drives the same ACP sequence Raft uses — including a real `devin acp` handshake without inference. Pass `DEVIN_API_KEY` into the container (`docker run --rm -e DEVIN_API_KEY=apk_... raft-agent-adapter`) to cover the authenticated paths.
 
-See [architecture](docs/architecture.md), [contributing](CONTRIBUTING.md), [docker](docs/docker.md), and [security reporting](SECURITY.md).
+See [contributing](CONTRIBUTING.md) and [security reporting](SECURITY.md).
 
 ## License
 
