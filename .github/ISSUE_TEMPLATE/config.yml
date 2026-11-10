@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Compatibility / 兼容性说明
-    url: https://github.com/sealpp/raft-agent-adapter/blob/main/README.md#what-works
+    url: https://github.com/sealpp/raft-agent-adapter/blob/main/README.md#verification-status
     about: Check tested versions and known limitations first.

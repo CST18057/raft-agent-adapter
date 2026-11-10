@@ -7,204 +7,118 @@
 ![Status: Experimental](https://img.shields.io/badge/status-experimental-yellow.svg)
 [![GitHub stars](https://img.shields.io/github/stars/sealpp/raft-agent-adapter?style=social)](https://github.com/sealpp/raft-agent-adapter/stargazers)
 
-**Raft's internal agents can't use Devin CLI, DeepSeek Harness or CodeBuddy Code — this adapter fixes that.** Once installed, your chosen backend becomes a real runtime option: backend-prefixed models (`Devin · …` / `DSH · …` / `CodeBuddy · …`) show up in Raft's model picker, thinking strength maps to the backend's own levels, permission requests and streamed updates pass through, sessions resume later. Windows and Linux; Raft itself isn't touched.
+**Raft's internal agents can't drive Devin CLI, DeepSeek Harness, or CodeBuddy Code — this adapter bridges the gap.** It sits in Raft's existing Grok Build runtime slot and translates between the two ACP dialects, so your backend of choice becomes a real runtime option: backend-prefixed models appear in Raft's picker, thinking levels map to the backend's own options, and sessions, permissions, and streamed updates pass through. Windows and Linux; nothing inside Raft is modified.
 
 ```mermaid
 flowchart LR
     A[Raft internal agent] --> B[Grok Build ACP slot]
     B --> C[raft-agent-adapter]
-    C --> D[Devin CLI, DeepSeek Harness or CodeBuddy Code ACP]
+    C --> D[Devin CLI / dsh / CodeBuddy ACP]
 ```
 
-The adapter translates between the two ACP dialects: Raft sees a Grok runtime, and the chosen backend sees an ACP host. Prompts, permission requests, streamed updates and usage data pass through both ways, and native sessions can resume later without replaying history. Nothing inside Raft is patched — install just adds a `grok` executable to your PATH. One backend is active per installation, selected by the `backend` setting.
+> Experimental community project, unaffiliated with Raft, Cognition, DeepSeek, or xAI. The runtime selector keeps showing **Grok Build** — that's expected, and a real Grok installation cannot share the slot.
 
-Heads-up before you install: this is an experimental community project, unaffiliated with Raft, Cognition, DeepSeek, or xAI, and the runtime selector will keep saying **Grok Build** — that's expected. The verification notes under [What works](#what-works) are worth a skim.
+**Setting up with an AI agent?** [AGENTS.md](AGENTS.md) is a condensed runbook. If it works for you, a [star](https://github.com/sealpp/raft-agent-adapter) helps others find it.
 
-If it works for you, a [star](https://github.com/sealpp/raft-agent-adapter) helps other people find it. Bug reports with CLI versions and repro steps are gold.
+## What you get
 
-**Setting this up with an AI agent?** [AGENTS.md](AGENTS.md) has a condensed runbook: capability boundaries, backend selection, install sequence, failure handling.
+- Backend models in Raft's picker (`Devin · …` / `DSH · …` / `CodeBuddy · …`), each with its native thinking levels
+- Model + thinking level as two independent Raft controls — the adapter maps them to the backend's native configuration
+- Native session resume on the same computer, without replaying history into Raft
+- Standing instructions, permission requests, streaming, and usage data forwarded both ways
+- Mid-turn messages: delivered natively on Devin, queued until the current turn ends on dsh and CodeBuddy
+- Devin and CodeBuddy sessions open with the backend's most permissive mode (`bypass` / `fullAccess`) — the same no-approval posture Raft gives Codex
 
-## What works
+## Verification status
 
-- The backend's models appear in Raft's model list with a `Devin · …` or `DSH · …` prefix.
-- Model selection and thinking strength use the native options offered by the backend (`thought_level` on Devin, `reasoning_effort` on DeepSeek Harness).
-- Raft standing instructions are forwarded as a marked instruction block on the first prompt of each launch or resume.
-- Host permission requests, streaming updates, and usage data are forwarded.
-- Existing session IDs can resume on the same computer, without replaying history into Raft.
-- Devin only: active-turn messages are delivered through Devin's native mid-turn prompt capability.
-- DeepSeek Harness only: mid-turn messages are queued and delivered automatically as the next prompt after the current turn finishes — dsh rejects a second in-flight prompt.
-- CodeBuddy Code only: active-turn messages are queued and delivered after the current turn, like DeepSeek Harness.
-- Devin and CodeBuddy Code sessions open with the backend's most permissive mode (`bypass` / `fullAccess`) — the same no-approval posture Raft gives Codex.
+| Backend | Live check | Verified on |
+| --- | --- | --- |
+| Devin CLI | Real prompt → real inference reply | Linux, Raft Computer 1.0.67 → Devin CLI 3000.12.32 (predates the multi-backend refactor) |
+| CodeBuddy Code | Prompt + model/thinking selection + session resume | CodeBuddy 2.179.3, signed-in China-site account |
+| DeepSeek Harness | Not yet run against a real `dsh` binary | Offline protocol suite only |
 
-Devin CLI was verified **live end-to-end** on Linux — a real Raft server drove an agent through Raft Computer 1.0.67 → this adapter → a logged-in Devin CLI 3000.12.32, and a DM returned a real inference reply. That run predates the multi-backend refactor. DeepSeek Harness has not yet been run against a real `dsh` binary. CodeBuddy Code 2.179.3 was run through the adapter with a signed-in China-site account: the handshake, the 17-model catalog with per-model thinking levels, model and thinking selection, one real prompt that finished with `end_turn`, and a cross-process session load. Mid-turn behavior was checked with two overlapping prompts: CodeBuddy queues the second one and runs it after the first, but acknowledges it at once. Permission prompts are not yet validated. Earlier checks without an account covered the handshake, the thinking catalog, adapter-local session deletion, and the sign-in refusal. The integration was originally exercised on Windows with Raft Computer 1.0.63.
+Windows inference, permission prompts, and mid-turn edge cases remain unverified — treat as experimental.
 
-## Quick start on Linux
+## Quick start
 
-Prerequisites: **Node.js 22+**, Git, a working Raft Computer for Linux, and an installed and authenticated [Devin CLI](https://docs.devin.ai/). Install Devin with the official script and log in once (for DeepSeek Harness, see [its section](#deepseek-harness-backend)):
-
-```sh
-curl -fsSL https://cli.devin.ai/install.sh | bash   # installs ~/.local/bin/devin
-devin setup                                          # sign in (required for models)
-```
-
-Then install the adapter:
+Prerequisites: **Node.js 22+**, Git, a working Raft Computer, and one installed, signed-in backend CLI.
 
 ```sh
-git clone https://github.com/sealpp/raft-agent-adapter.git
-cd raft-agent-adapter
+# Linux
+curl -fsSL https://cli.devin.ai/install.sh | bash   # install Devin CLI → ~/.local/bin/devin
+devin setup                                          # sign in
+git clone https://github.com/sealpp/raft-agent-adapter.git && cd raft-agent-adapter
 platform/linux/install.sh
 npm run models:refresh
 platform/linux/test-adapter.sh
 ```
 
-`install.sh` builds the launcher and places a `grok` trampoline in `~/.local/bin` — the directory Raft checks on POSIX after `which grok`. `models:refresh` reads native thinking choices; `test-adapter.sh` checks the launcher's ACP handshake and model discovery. None of them submits an inference prompt.
-
-In Raft, add an **internal agent**, choose **Grok Build**, refresh the model list, then select a backend-prefixed model (`Devin · …` or `DSH · …`). If Grok Build is absent from the Computer's runtime inventory, rescan runtimes or restart the Computer so it re-checks `~/.local/bin/grok`. The UI's workspace **Scan** action does not rescan installed runtimes.
-
-## Quick start on Windows
-
-Prerequisites: **Node.js 22+**, Git, a working Raft Computer installation, and an installed and authenticated [Devin CLI](https://docs.devin.ai/). The launcher builds with the .NET Framework 4.x C# compiler included on supported Windows installations. Use the official Devin CLI for login, account configuration, and updates.
-
-Run these commands in PowerShell:
-
 ```powershell
-git clone https://github.com/sealpp/raft-agent-adapter.git
-cd raft-agent-adapter
+# Windows (PowerShell)
+git clone https://github.com/sealpp/raft-agent-adapter.git; cd raft-agent-adapter
 .\platform\windows\Install.ps1
 .\platform\windows\Refresh-Models.ps1
 .\platform\windows\Test-Adapter.ps1
 ```
 
-If your local PowerShell policy blocks a script you have reviewed, you can run that script with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\platform\windows\Install.ps1`. No npm packages are required to run the adapter.
+The installer places a `grok` trampoline where Raft looks for it; the refresh/test scripts read model and thinking options without sending an inference prompt. `Another grok exists` means another checkout owns the slot — run its uninstaller first. A blocked PowerShell script can be run once with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File …`.
 
-`Refresh-Models.ps1` discovers thinking choices for each native model. `Test-Adapter.ps1` checks the compiled launcher's ACP handshake and model discovery. Both contact your installed Devin CLI; neither submits an inference prompt. If configuration checks fail, verify official Devin login and connectivity first.
+Then in Raft: add an **internal agent → Grok Build → refresh the model list → pick a backend-prefixed model**. If Grok Build is missing from the runtime inventory, rescan runtimes or restart the Computer (the workspace **Scan** action does not rescan runtimes).
 
-If another `grok.exe` exists, installation stops: a real Grok installation cannot share this slot, and only one checkout of this adapter can own it. Run the other checkout's `Uninstall.ps1` first. The installer keeps a copy of your previous user PATH in ignored local installation state. On Linux, `install.sh` stops the same way if another `grok` is on PATH; run that checkout's `uninstall.sh` first.
+## Backends
 
-## DeepSeek Harness backend
+Set `"backend"` in `adapter.config.json` (copy from `adapter.config.example.json`) or export `RAFT_ADAPTER_BACKEND`. One backend is active per installation.
 
-DeepSeek Harness (`dsh`) speaks ACP through `dsh acp` (the npm package `@deepseek-ai/dsh` ships the profile). Point the adapter at it by setting `"backend": "dsh"` in `adapter.config.json`, then refresh models. The adapter runs `dsh acp` by default; override with `dshExe` / `dshArgs`.
+| `backend` value | Runs | Sign in | Notes |
+| --- | --- | --- | --- |
+| `devin` | `devin acp` | `devin setup` | `auto` picks Devin when its CLI is found |
+| `dsh` | `dsh acp` | `dsh web` or `~/.dsh` config | Cold start can exceed Raft's ~15 s model-detection window |
+| `codebuddy` | `codebuddy --acp` | `codebuddy` once, or `CODEBUDDY_API_KEY` | Never auto-selected; sessions created in its own terminal UI can't resume via Raft |
 
-Protocol differences handled by the adapter:
+After switching backends, refresh Raft's model list and re-pick a model — an ID from the other backend is rejected explicitly rather than misrouted.
 
-- dsh reports `sessionCapabilities: { close, list, resume }` — no `loadSession`. Raft's Grok driver requires `loadSession: true`, so the adapter injects it and maps `session/load` → `session/resume`. Resume failures (`not resumable`, `cwd does not match`) are translated into the missing-session shape so Raft auto-opens a fresh session — no manual reset needed.
-- dsh has no `session/delete`; `session/close` is used instead. Closed sessions remain in `session/list`, which is expected dsh behavior.
-- Model choices may arrive as grouped nested options whose values are JSON `[provider, model]` pairs; the adapter flattens them into `dsh:<value>` IDs.
-- The primed catalog session's ID is kept in adapter-local state and resumed with `session/resume` on later launches, so repeated Raft runtime probes do not leave new dead sessions. `npm run models:refresh` still opens one session per run; dsh keeps it listed because it cannot delete sessions.
-- A prompt that is already in flight cannot take an interjection. Queued interjections are sent as the next `session/prompt` once the active turn completes.
+## Models and thinking levels
 
-`dsh acp` boots a Cordis plugin kernel, and `initialize` waits for that kernel and the primed catalog session before it answers. The cold-start time has not been measured. If it exceeds Raft's model-detection window (about 15 seconds), Raft will not list DeepSeek models. Configure providers and keys in `~/.dsh` (`dsh web` or the yaml files) before pointing Raft at it.
-
-## CodeBuddy Code backend
-
-CodeBuddy Code runs as `codebuddy --acp` (npm package `@tencent-ai/codebuddy-code`). Set `"backend": "codebuddy"` in `adapter.config.json` (or `RAFT_ADAPTER_BACKEND=codebuddy`), then refresh models. The adapter looks for `codebuddy` on PATH; set `codebuddyExe` / `CODEBUDDY_EXE` to use another binary and `codebuddyArgs` to change its arguments. `auto` never selects CodeBuddy.
-
-Sign in first. Without credentials `session/new` fails with `Authentication required`, which Raft shows as not authenticated. Either run `codebuddy` once on this computer and finish the sign-in, or set `CODEBUDDY_API_KEY` in the environment that starts Raft (and `CODEBUDDY_INTERNET_ENVIRONMENT` as CodeBuddy's documentation describes for its China and iOA sites). The adapter never forwards `authenticate` for this backend: CodeBuddy's sign-in is interactive and logs out the current account first.
-
-Protocol differences handled by the adapter:
-
-- The CLI has no `session/close`, `session/delete` or `session/list`. Closing a session only forgets it in the adapter; the CLI keeps it under `~/.codebuddy/projects/`.
-- Every `session/new` is written to disk immediately, so the primed catalog session is kept in `.local/backend-state.json` and resumed, as on DeepSeek Harness.
-- Thinking levels differ per model. `npm run models:refresh` records each model's levels in the catalog.
-- Active-turn messages are queued and delivered after the current turn. CodeBuddy also queues a second prompt sent mid-turn but acknowledges it at once with `end_turn`, so the adapter sends interjections only after the current turn and keeps the Raft turn open until they have run.
-- Permission mode is set to `fullAccess` through `session/set_config_option` every time a session opens (new, resumed or loaded): a true full pass that skips all permission prompts, including dangerous-command checks — the same posture Raft gives Codex (`approvalPolicy: "never"` + `sandbox_mode: "danger-full-access"`). Explicit `deny` rules still apply. CodeBuddy also offers `default` (Always Ask), `acceptEdits`, `plan`, `auto`, `dontAsk` and `bypassPermissions`; the adapter does not expose a switch for them. If a CodeBuddy build lacks the `mode` option, the adapter logs a warning and opens the session anyway.
-- Token usage arrives as per-request `usage_update` notifications instead of in the prompt result. The adapter sums them into the prompt's `_meta.usage` in ACP's usage shape (`inputTokens`, `outputTokens`, `totalTokens`) and forwards the notifications unchanged. Cache and reasoning counts are not reported separately. Verified live: the result equals the deduplicated sum of the per-request updates. In the checked requests, cache hits were part of the prompt tokens, and reasoning tokens are assumed to sit inside the completion total.
-
-Known limitation: the adapter records the sessions it creates under `.local/codebuddy-sessions/`. A `session/load` for any other session ID is reported as `session not found`, so Raft starts a fresh session as it does for DSH. Sessions created directly in the `codebuddy` terminal UI are therefore not resumed through Raft. Another edge case: if you delete a session's file on disk, the adapter still treats its ID as known, and CodeBuddy recreates it as an empty session on resume. Deleting `.local/` (or using a fresh checkout without it) also forgets the record. Verified against CodeBuddy 2.147.0 and 2.179.3 on Linux. CodeBuddy releases often, so refresh models and rerun the handshake after each upgrade.
-
-One live-run observation on deferred interjections: the follow-up's reply streamed inside the Raft turn in one run and a few milliseconds after the turn's response in another. ACP does not guarantee that a prompt's `session/update` notifications all precede its response, so a reply can land just past the turn boundary; how Raft attributes such trailing updates is unverified.
-
-## Switching backends
-
-Raft does not know which backend sits behind the `grok` slot — switching `backend` changes models, session IDs, and thinking-option vocabulary without Raft noticing. After a switch, refresh Raft's model list and re-pick a backend-prefixed model. A stored model ID from the other backend is rejected with a clear error instead of being misrouted. On DeepSeek Harness, an unknown session ID is reported as missing, so Raft starts a fresh session; on Devin, resume errors pass through unchanged.
-
-## Select SWE-2 Max
-
-In Raft, choose the **Devin SWE-2 model** (`devin:swe-2`) and set **Reasoning effort → Max**. The model list shows family IDs — the level lives in the separate effort field.
+Raft shows **family** model IDs (`devin:swe-2`); the level lives in the separate reasoning-effort selector. To get SWE-2 Max, pick the SWE-2 model and set **Reasoning effort → Max**:
 
 | Raft choice | Native Devin configuration |
 | --- | --- |
 | Model: Devin SWE-2 | `model = swe-2-high` |
 | Reasoning: Medium / High / Max | `thought_level = medium / high / max` |
-| Reasoning: Default | The selected model's native preset; SWE-2 currently uses High |
+| Reasoning: Default | The model's native preset (SWE-2: High) |
 
-No `swe-2-max` entry is fabricated in the list — Devin only accepts its base IDs, and the level is a separate option. A hand-written combo like `devin:swe-2-max` still resolves to `swe-2-high` + `max` if it ever arrives, and saved profiles with the raw base ID `devin:swe-2-high` keep working. The adapter validates the offered options and confirms the value returned by Devin. Unsupported strengths fail explicitly. For models whose native preset is `none`, Raft's **Default** retains that preset, because Raft's Grok parser does not accept `none` as an explicit strength.
+Hand-written combos (`devin:swe-2-max`) and saved profiles with a raw base ID (`devin:swe-2-high`) still resolve to the right configuration. After a backend CLI update, rerun `npm run models:refresh` and refresh Raft's model list.
 
-After a Devin CLI update, refresh the catalog (`platform/linux/refresh-models.sh`, `platform\windows\Refresh-Models.ps1`, or `npm run models:refresh`) and refresh Raft's model list. A changed binary or model list invalidates the cached catalog. The currently selected model also exposes its live thinking options.
+## Configuration
 
-## Configuration and proxy
+All optional — sensible defaults discover each backend at its standard install path, then PATH. Copy `adapter.config.example.json` to `adapter.config.json` (git-ignored), or pass `--devin-exe` / `--proxy-url` (`-DevinExe` / `-ProxyUrl` on Windows) to the installer.
 
-Defaults discover Devin at the standard standalone install location — `%LOCALAPPDATA%\devin\cli\bin\devin.exe` on Windows, `~/.local/bin/devin` (plus its `_versions/current` target) on macOS/Linux — then PATH. Optional configuration is local to this checkout and ignored by Git:
-
-```sh
-platform/linux/install.sh --devin-exe /opt/devin/devin --proxy-url http://127.0.0.1:7890
-```
-
-```powershell
-.\platform\windows\Install.ps1 -DevinExe 'C:\tools\devin\devin.exe' -ProxyUrl 'http://127.0.0.1:7890'
-```
-
-Or copy `adapter.config.example.json` to `adapter.config.json` and edit it. Use an empty proxy value to inherit the launch environment.
-
-| Setting | Priority / behavior |
+| Setting | Priority |
 | --- | --- |
-| `backend` | `RAFT_ADAPTER_BACKEND` → local `backend` → `auto` (Devin if its CLI is found, otherwise DeepSeek Harness; never CodeBuddy) |
-| Devin executable | `DEVIN_EXE` → local `devinExe` → standard install path → PATH |
-| dsh executable | `DSH_EXE` → local `dshExe` → `dsh` on PATH; args default to `acp` via `dshArgs` |
-| CodeBuddy executable | `CODEBUDDY_EXE` → local `codebuddyExe` → `codebuddy` on PATH; args default to `--acp` via `codebuddyArgs` |
-| Proxy | `RAFT_ADAPTER_PROXY` → local `proxyUrl` → inherited environment |
-| Configuration file | `RAFT_ADAPTER_CONFIG` → checkout's `adapter.config.json` |
-| `defaultModel` | Fallback display ID if the backend omits its current model; native session settings take precedence |
+| `backend` | `RAFT_ADAPTER_BACKEND` → config → `auto` |
+| Backend executable | `DEVIN_EXE` / `DSH_EXE` / `CODEBUDDY_EXE` → config → standard path → PATH |
+| Proxy | `RAFT_ADAPTER_PROXY` → config → inherited environment |
+| Config file | `RAFT_ADAPTER_CONFIG` → checkout's `adapter.config.json` |
 
-An explicit proxy sets `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` **for the backend child process**. It does not start a proxy server, change the system proxy, or require a specific proxy application. Your proxy service must already be running. Without an explicit value, the child inherits the environment of the Raft Computer process; environment inheritance alone does not guarantee system-proxy routing. SOCKS support ultimately depends on the installed backend CLI.
+An explicit proxy sets `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` on the backend child process only — it starts no proxy server and changes nothing system-wide.
 
-Local configuration persists across Raft updates because it lives outside Raft. This is separate from any global setting made by a proxy application. Do not commit proxy credentials or Devin account files.
+## Update and uninstall
 
-## Update or uninstall
+Pull a reviewed update → rebuild the launcher (`platform/linux/build.sh` / `platform\windows\Build.ps1`) → refresh models. Re-verify after upgrading Raft or a backend CLI.
 
-Stop agents using this checkout before rebuilding its launcher. Pull a reviewed update, rebuild (`platform/linux/build.sh` or `platform\windows\Build.ps1`), refresh models, then start the agents again. If you move the checkout or change Node installations, rebuild and reinstall from the new location.
+`platform/linux/uninstall.sh` / `platform\windows\Uninstall.ps1` removes this checkout's PATH entry only — sessions, sources, and other PATH entries are preserved.
 
-Raft upgrades do not overwrite this directory, but changes in Raft's Grok integration or Devin's ACP protocol may require adapter updates. Test compatibility after upgrading either product. Use official Devin commands for Devin updates; Raft's Grok login/update controls target the Grok runtime.
+## Development
 
 ```sh
-platform/linux/uninstall.sh        # Linux
+npm run check && npm test                 # offline protocol suite — no account needed
+platform/linux/test-adapter.sh --live     # real-CLI configuration checks — no prompts sent
 ```
 
-```powershell
-.\platform\windows\Uninstall.ps1   # Windows
-```
-
-Uninstall removes this checkout's entry from PATH (the `~/.local/bin/grok` trampoline on Linux; the user PATH entry on Windows). It preserves source files, agent sessions, and unrelated PATH entries. Restart the Computer or rescan runtimes to inherit the change, and stop or reconfigure agents using this slot.
-
-## Development and checks
-
-```sh
-npm ci
-npm run check
-npm test
-platform/linux/build.sh          # or platform\windows\Build.ps1
-platform/linux/test-adapter.sh --live   # or Test-Adapter.ps1 -Live
-```
-
-`npm test` uses a deterministic local ACP peer, with no account, network, model, or external tools. CI runs these protocol checks on Node 22/24 on Windows and Linux, builds both launchers, and smoke-tests the full chain through the built launcher against the fake peer. A separate job builds the Docker verification image without external downloads.
-
-`--live` explicitly checks the real Devin SWE-2 Max, invalid-strength rejection, and Default/High behavior, without a model prompt. It needs a refreshed model catalog. Normal agent work uses your Devin account and credits.
-
-### Docker development sandbox
-
-A self-contained Linux environment (Node 22 + Devin CLI, optional Raft Computer) is provided for development and verification:
-
-```sh
-docker build -f docker/Dockerfile -t raft-agent-adapter .   # build verifies the whole chain
-docker run --rm raft-agent-adapter                          # re-run the verification suite
-docker run -it raft-agent-adapter bash                      # interactive shell
-docker build -f docker/Dockerfile --build-arg INSTALL_RAFT=1 -t raft-agent-adapter .   # + raft-computer
-```
-
-The build runs offline protocol tests, builds the launcher, installs `grok` on PATH, and drives the same ACP sequence Raft uses — including a real `devin acp` handshake without inference. Pass `DEVIN_API_KEY` into the container (`docker run --rm -e DEVIN_API_KEY=apk_... raft-agent-adapter`) to cover the authenticated paths.
+`npm test` runs against a deterministic fake peer; `--live` verifies the real backend's configuration surface (model list, thinking levels, invalid-value rejection) without inference. Normal agent work uses your account's credits. A Docker verification image lives in `docker/` (`docker build -f docker/Dockerfile .` runs the full suite; pass `-e DEVIN_API_KEY=…` for authenticated checks).
 
 See [contributing](CONTRIBUTING.md) and [security reporting](SECURITY.md).
 
 ## License
 
-[MIT](LICENSE). Raft, Devin, DeepSeek, and Grok names belong to their respective owners. No vendor binaries, credentials, or copied Raft implementation files are distributed. Compatibility does not imply vendor endorsement.
+[MIT](LICENSE). Raft, Devin, DeepSeek, and Grok names belong to their owners; protocol compatibility implies no endorsement.
