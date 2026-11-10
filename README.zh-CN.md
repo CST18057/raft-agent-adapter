@@ -22,6 +22,8 @@ flowchart LR
 
 好用的话点个 [star](https://github.com/sealpp/raft-agent-adapter)，让更多人能找到它。报 bug 时带上 CLI 版本和复现步骤，最有帮助。
 
+**让 AI Agent 帮你安装配置？** [AGENTS.md](AGENTS.md) 里有一份精简 runbook：能力边界、后端选择、安装序列、失败处理。
+
 ## 已实现能力
 
 - 在 Raft 模型列表中展示带 `Devin · …` / `DSH · …` / `CodeBuddy · …` 前缀的模型。

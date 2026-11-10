@@ -2,6 +2,28 @@
 
 Guidance for coding agents working in this repository.
 
+## Setup
+
+A condensed runbook for an agent asked to install and configure this adapter from a checkout of this repository.
+
+An agent can install, select a backend, refresh the model catalog, and run the offline checks. It cannot sign in to a backend CLI — all three sign-ins are interactive — and cannot drive the Raft UI. Escalate those to the user instead of retrying.
+
+1. Prerequisites: `node --version` ≥ 22 and `git` on PATH. Confirm one authenticated backend: `devin`, `dsh`, or `codebuddy` on PATH, or Devin at its standard install path (`%LOCALAPPDATA%\devin\cli\bin\devin.exe` on Windows, `~/.local/bin/devin` on Linux/macOS). If the backend is not signed in, ask the user to run `devin setup`, `dsh web`, or `codebuddy`. For CodeBuddy, `CODEBUDDY_API_KEY` in the environment that starts Raft is a non-interactive alternative.
+2. Backend: copy `adapter.config.example.json` to `adapter.config.json` and set `"backend"` to `devin`, `dsh`, or `codebuddy` — or export `RAFT_ADAPTER_BACKEND`. `auto` resolves to Devin when its CLI is found, else dsh; it never selects CodeBuddy.
+3. Install and verify (no `npm install` needed — the adapter has no runtime dependencies):
+
+   ```sh
+   platform/linux/install.sh              # optional: --devin-exe PATH --proxy-url URL
+   npm run models:refresh                 # reads models + thinking options; no inference prompt
+   platform/linux/test-adapter.sh         # ACP handshake + model discovery via the built launcher
+   npm run check && npm test              # fully offline protocol suite
+   ```
+
+   On Windows: `.\platform\windows\Install.ps1 [-DevinExe ...] [-ProxyUrl ...]`, `Refresh-Models.ps1`, `Test-Adapter.ps1`. Do not run `--live` or `npm run test:live` unless the user asked — they exercise the real account.
+4. Hand back: the remaining steps are Raft UI work for the user — add an internal agent → Grok Build → refresh the model list → pick a `Devin · …` / `DSH · …` / `CodeBuddy · …` model. If Grok Build is absent from the runtime inventory, rescan runtimes or restart the Computer.
+
+Failures: `Another grok exists` means another checkout owns the slot — run its `uninstall.sh` / `Uninstall.ps1` first. `Authentication required` means the backend is not signed in — escalate to the user. No backend-prefixed models in Raft → rerun `models:refresh`, then rescan runtimes.
+
 ## Layout
 
 - `src/`: the ACP adapter (`adapter.mjs`, `backends.mjs`, `model-config.mjs`, `config.mjs`, `rpc.mjs`).

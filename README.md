@@ -22,6 +22,8 @@ Heads-up before you install: this is an experimental community project, unaffili
 
 If it works for you, a [star](https://github.com/sealpp/raft-agent-adapter) helps other people find it. Bug reports with CLI versions and repro steps are gold.
 
+**Setting this up with an AI agent?** [AGENTS.md](AGENTS.md) has a condensed runbook: capability boundaries, backend selection, install sequence, failure handling.
+
 ## What works
 
 - The backend's models appear in Raft's model list with a `Devin · …` or `DSH · …` prefix.
