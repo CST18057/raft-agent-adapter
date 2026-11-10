@@ -10,7 +10,7 @@ sequenceDiagram
     participant D as backend ACP (devin/dsh)
     R->>L: agent --no-leader --always-approve stdio
     L->>A: exec node adapter.mjs with byte-preserving stdio
-    A->>D: initialize + temporary session/new
+    A->>D: initialize + primed catalog session (new or resumed)
     D-->>A: Capabilities + native model options
     A-->>R: Grok-compatible model metadata (_meta.modelState)
     R->>A: session/new or session/load
@@ -47,7 +47,7 @@ The launcher resolves the checkout relative to itself. Both platforms record the
 ### Process lifetime
 
 - **Windows**: the compiled C# launcher spawns Node and binds it to a Windows job object so the whole tree dies with the launcher.
-- **Linux**: `bin/grok` ends with `exec node src/adapter.mjs "$@"`, so the launcher *is* the adapter process. This is load-bearing, not cosmetic: Raft's POSIX driver creates runtime children in their own process group and signals the launcher PID on shutdown and during model-detection probes. A wrapper script that spawned Node as a child would leave Node and Devin orphaned. When the adapter process dies, the backend child's stdin hits EOF and it exits.
+- **Linux**: `bin/grok` ends with `exec node src/adapter.mjs "$@"`, so the launcher *is* the adapter process. This is load-bearing, not cosmetic: Raft's POSIX driver creates runtime children in their own process group and signals the launcher PID on shutdown and during model-detection probes. A wrapper script that spawned Node as a child would leave Node and the backend orphaned. When the adapter process dies, the backend child's stdin hits EOF and it exits.
 
 ### PATH installation
 
@@ -94,17 +94,17 @@ The same native session ID is returned to Raft. During `session/load`, replay no
 
 Capability requirements are per-backend. Devin must advertise session loading plus `cognition.ai/midTurnPrompts`; dsh instead reports `sessionCapabilities: { close, list, resume }` and no `loadSession`, which the adapter injects because resume satisfies the same contract. A missing required capability fails the handshake rather than silently weakening message delivery.
 
-Because dsh sessions cannot be deleted, the primed catalog session created during `initialize` is persisted in adapter-local state (`backend-state.json`, keyed by backend + executable) and reused across processes via `session/list` + `session/resume`. `RAFT_ADAPTER_LOCAL` redirects the local-state directory for isolation.
+Because dsh sessions cannot be deleted, the primed catalog session created during `initialize` is persisted in adapter-local state (`backend-state.json`, keyed by backend) and resumed by its stored ID with `session/resume` in later processes. `RAFT_ADAPTER_LOCAL` redirects the local-state directory for isolation.
 
 ## Local state
 
 | Location | Contents |
 | --- | --- |
 | `bin/` | Locally generated launcher (`grok` or `grok.exe`) |
-| `.local/` | Node path, catalog, install state (PATH backup / link path) |
+| `.local/` | Node path, model catalog, Windows PATH backup, dsh primed-session state |
 | `adapter.config.json` | Optional local executable and proxy configuration |
 | `~/.local/bin/grok` | Linux PATH trampoline created by `install.sh` |
-| `backend-state.json` in `.local/` | Primed catalog session reuse (per backend + executable) |
+| `backend-state.json` in `.local/` | Primed catalog session reuse (per backend) |
 | Official backend storage | Authentication and native sessions, managed by Devin/dsh (`~/.dsh`) |
 
 All generated and machine-specific adapter files are ignored by Git. The public repository has no runtime npm dependencies and does not contain Raft, Devin, DeepSeek, or Grok source or binaries. Advanced tests may override the native process arguments with local `devinArgs` / `dshArgs` string arrays; normal usage keeps the defaults (`['acp']`).

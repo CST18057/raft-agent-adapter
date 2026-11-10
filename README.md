@@ -16,7 +16,7 @@ flowchart LR
     C --> D[Devin CLI ACP or DeepSeek Harness ACP]
 ```
 
-The adapter translates between the two ACP dialects: Raft sees a Grok runtime, Devin sees an ACP host. Prompts, mid-turn messages, permission requests, streamed updates and usage data pass through both ways, and native Devin sessions can resume later without replaying history. Nothing inside Raft is patched — install just adds a `grok` executable to your PATH.
+The adapter translates between the two ACP dialects: Raft sees a Grok runtime, and the chosen backend sees an ACP host. Prompts, permission requests, streamed updates and usage data pass through both ways, and native sessions can resume later without replaying history. Nothing inside Raft is patched — install just adds a `grok` executable to your PATH. One backend is active per installation, selected by the `backend` setting.
 
 Heads-up before you install: this is an experimental community project, unaffiliated with Raft, Cognition, DeepSeek, or xAI, and the runtime selector will keep saying **Grok Build** — that's expected. [Compatibility and limits](docs/compatibility.md) is worth a skim.
 
@@ -32,11 +32,11 @@ If it works for you, a [star](https://github.com/sealpp/raft-agent-adapter) help
 - Devin only: active-turn messages are delivered through Devin's native mid-turn prompt capability.
 - DeepSeek Harness only: mid-turn messages are queued and delivered automatically as the next prompt after the current turn finishes — dsh rejects a second in-flight prompt.
 
-Verified **live end-to-end** on Linux — a real Raft server drove an agent through Raft Computer 1.0.67 → this adapter → a logged-in Devin CLI 3000.12.32, and a DM returned a real inference reply. The integration was originally exercised on Windows with Raft Computer 1.0.63. Full evidence breakdown: [validation matrix](docs/compatibility.md).
+Devin CLI was verified **live end-to-end** on Linux — a real Raft server drove an agent through Raft Computer 1.0.67 → this adapter → a logged-in Devin CLI 3000.12.32, and a DM returned a real inference reply. That run predates the multi-backend refactor. DeepSeek Harness has not yet been run against a real `dsh` binary. The integration was originally exercised on Windows with Raft Computer 1.0.63. Full evidence breakdown: [validation matrix](docs/compatibility.md).
 
 ## Quick start on Linux
 
-Prerequisites: **Node.js 22+**, Git, a working Raft Computer for Linux, and an installed and authenticated [Devin CLI](https://docs.devin.ai/). Install Devin with the official script and log in once:
+Prerequisites: **Node.js 22+**, Git, a working Raft Computer for Linux, and an installed and authenticated [Devin CLI](https://docs.devin.ai/). Install Devin with the official script and log in once (for DeepSeek Harness, see [its section](#deepseek-harness-backend)):
 
 ```sh
 curl -fsSL https://cli.devin.ai/install.sh | bash   # installs ~/.local/bin/devin
@@ -75,7 +75,7 @@ If your local PowerShell policy blocks a script you have reviewed, you can run t
 
 `Refresh-Models.ps1` discovers thinking choices for each native model. `Test-Adapter.ps1` checks the compiled launcher's ACP handshake and model discovery. Both contact your installed Devin CLI; neither submits an inference prompt. If configuration checks fail, verify official Devin login and connectivity first.
 
-If another `grok.exe` exists, installation stops. A real Grok installation cannot directly share this slot. To migrate an **older checkout of this adapter**, stop its agents and run `Install.ps1 -ReplaceAdapter`; the installer verifies the old executable's adapter identity before replacing its PATH entry. It preserves the previous user PATH in ignored local installation state. On Linux the equivalent is `install.sh --replace-adapter`.
+If another `grok.exe` exists, installation stops. A real Grok installation cannot directly share this slot. To migrate an **older checkout of this adapter**, stop its agents and run `Install.ps1 -ReplaceAdapter`; the installer verifies the old executable's adapter identity before replacing its PATH entry. It preserves the previous user PATH in ignored local installation state. On Linux the equivalent is `install.sh --replace-adapter`. Launchers from before the rename, which identify as `raft-devin-adapter`, are refused: run that checkout's `uninstall.sh` or `Uninstall.ps1` first.
 
 ## DeepSeek Harness backend
 
@@ -86,14 +86,14 @@ Protocol differences handled by the adapter:
 - dsh reports `sessionCapabilities: { close, list, resume }` — no `loadSession`. Raft's Grok driver requires `loadSession: true`, so the adapter injects it and maps `session/load` → `session/resume`. Resume failures (`not resumable`, `cwd does not match`) are translated into the missing-session shape so Raft auto-opens a fresh session — no manual reset needed.
 - dsh has no `session/delete`; `session/close` is used instead. Closed sessions remain in `session/list`, which is expected dsh behavior.
 - Model choices may arrive as grouped nested options whose values are JSON `[provider, model]` pairs; the adapter flattens them into `dsh:<value>` IDs.
-- The primed catalog session is persisted in adapter-local state and reused across launches via `session/list` + `session/resume`, so repeated Raft runtime probes do not pile up dead sessions.
+- The primed catalog session's ID is kept in adapter-local state and resumed with `session/resume` on later launches, so repeated Raft runtime probes do not leave new dead sessions. `npm run models:refresh` still opens one session per run; dsh keeps it listed because it cannot delete sessions.
 - A prompt that is already in flight cannot take an interjection. Queued interjections are sent as the next `session/prompt` once the active turn completes.
 
-dsh startup (`dsh acp` boots a Cordis kernel) can approach Raft's ~15s model-detection window. The adapter answers `initialize` immediately, so detection passes; the kernel is spawned lazily on the first session call. Configure providers and keys in `~/.dsh` (`dsh web` or the yaml files) before pointing Raft at it.
+`dsh acp` boots a Cordis plugin kernel, and `initialize` waits for that kernel and the primed catalog session before it answers. The cold-start time has not been measured. If it exceeds Raft's model-detection window (about 15 seconds), Raft will not list DeepSeek models. Configure providers and keys in `~/.dsh` (`dsh web` or the yaml files) before pointing Raft at it.
 
 ## Switching backends
 
-Raft does not know which backend sits behind the `grok` slot — switching `backend` changes models, session IDs, and thinking-option vocabulary without Raft noticing. After a switch: refresh Raft's model list and re-pick a `…`-prefixed model; old stored model IDs and session IDs belonging to the other backend are rejected with a clear error rather than silently misrouted. Starting a fresh session (or letting the resume fallback create one) is the cleanest reset path.
+Raft does not know which backend sits behind the `grok` slot — switching `backend` changes models, session IDs, and thinking-option vocabulary without Raft noticing. After a switch, refresh Raft's model list and re-pick a backend-prefixed model. A stored model ID from the other backend is rejected with a clear error instead of being misrouted. On DeepSeek Harness, an unknown session ID is reported as missing, so Raft starts a fresh session; on Devin, resume errors pass through unchanged.
 
 ## Select SWE-2 Max
 
@@ -125,14 +125,14 @@ Or copy `adapter.config.example.json` to `adapter.config.json` and edit it. Use 
 
 | Setting | Priority / behavior |
 | --- | --- |
-| `backend` | `RAFT_ADAPTER_BACKEND` → local `backend` → `devin` |
+| `backend` | `RAFT_ADAPTER_BACKEND` → local `backend` → `auto` (Devin if its CLI is found, otherwise DeepSeek Harness) |
 | Devin executable | `DEVIN_EXE` → local `devinExe` → standard install path → PATH |
 | dsh executable | `DSH_EXE` → local `dshExe` → `dsh` on PATH; args default to `acp` via `dshArgs` |
-| Proxy | `RAFT_ADAPTER_PROXY` → `DEVIN_ADAPTER_PROXY` → local `proxyUrl` → inherited environment |
-| Configuration file | `RAFT_ADAPTER_CONFIG` → `DEVIN_ADAPTER_CONFIG` → checkout's `adapter.config.json` |
+| Proxy | `RAFT_ADAPTER_PROXY` → local `proxyUrl` → inherited environment |
+| Configuration file | `RAFT_ADAPTER_CONFIG` → checkout's `adapter.config.json` |
 | `defaultModel` | Fallback display ID if the backend omits its current model; native session settings take precedence |
 
-An explicit proxy sets `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` **for the backend child process**. It does not start a proxy server, change the system proxy, or require a specific proxy application. Your proxy service must already be running. Without an explicit value, the child inherits the environment of the Raft Computer process; environment inheritance alone does not guarantee system-proxy routing. SOCKS support ultimately depends on the installed Devin CLI.
+An explicit proxy sets `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` **for the backend child process**. It does not start a proxy server, change the system proxy, or require a specific proxy application. Your proxy service must already be running. Without an explicit value, the child inherits the environment of the Raft Computer process; environment inheritance alone does not guarantee system-proxy routing. SOCKS support ultimately depends on the installed backend CLI.
 
 Local configuration persists across Raft updates because it lives outside Raft. This is separate from any global setting made by a proxy application. Do not commit proxy credentials or Devin account files.
 

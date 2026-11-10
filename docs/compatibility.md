@@ -1,19 +1,22 @@
 # Compatibility and validation
 
-Version 0.3.0 adds DeepSeek Harness (`backend: "dsh"`) alongside Devin, and renames the project to `raft-agent-adapter`. Protocol behavior depends on the installed Raft and backend versions. Please include all three versions when reporting a regression.
+Version 0.3.0 (not yet published) adds DeepSeek Harness (`backend: "dsh"`) alongside Devin, and renames the project to `raft-agent-adapter`. Protocol behavior depends on the installed Raft and backend versions. Please include all three versions when reporting a regression.
 
 ## Verified scope
 
 | Environment | Evidence |
 | --- | --- |
 | Windows, Raft Computer 1.0.63, Devin CLI 3000.12.32, Node 26.13.0 | Original local integration exercised real internal-agent startup, tool execution, DM round trips, role forwarding, idle and in-flight messages, and same-machine restart/resume |
-| Linux container, Devin CLI 3000.12.32 (standalone install), Node 22 | `docker build` verification: launcher generation, PATH install at `~/.local/bin/grok`, the daemon's exact launch args (`agent --no-leader --always-approve stdio`), `initialize`/`session/new`/`session/load`/`session/delete` against the **real** `devin acp` binary, plus uninstall/reinstall cycle — all without inference |
+| Linux container, Devin CLI 3000.12.32 (standalone install), Node 22 | `docker build` verification: launcher generation, PATH install at `~/.local/bin/grok`, the daemon's exact launch args (`agent --no-leader --always-approve stdio`), `initialize`/`session/new`/`session/load`/`session/delete` against the **real** `devin acp` binary, plus uninstall/reinstall cycle — all without inference. Recorded before the multi-backend refactor; not re-run since |
 | Linux container, fake ACP peer | Full chain through PATH `grok`: model catalog, `session/set_model` with `reasoningEffort=max`, session resume |
 | Raft Computer 1.0.67 for Linux | Installs via the official script in the same image; wire behavior confirmed by extracting the daemon's embedded Grok driver (discovery, launch args, `_meta` fields, effort vocabulary, `-32000` → not-authenticated mapping) |
-| **Live Linux Raft integration** (real server, Raft Computer 1.0.67, Devin CLI 3000.12.32 standalone, Node 24) | Full chain verified end-to-end in a container: `raft-computer attach` → `Detected runtimes: grok (raft-agent-adapter 0.3.0…)` → `runtime_models:detect` populated the UI model picker → internal agent created on **Grok Build** with `devin:swe-2-flash-medium` → `agent:start` spawned the adapter → a DM to the agent produced a real inference reply (`OK`, `Devin · SWE-2 Flash Medium`) |
+| **Live Linux Raft integration** (real server, Raft Computer 1.0.67, Devin CLI 3000.12.32 standalone, Node 24; recorded before the multi-backend refactor) | Full chain verified end-to-end in a container: `raft-computer attach` → `Detected runtimes: grok (raft-devin-adapter 0.3.0…)` → `runtime_models:detect` populated the UI model picker → internal agent created on **Grok Build** with `devin:swe-2-flash-medium` → `agent:start` spawned the adapter → a DM to the agent produced a real inference reply (`OK`, `Devin · SWE-2 Flash Medium`) |
+| Linux container, fake DeepSeek Harness peer | Full chain through the launcher and PATH `grok` against a deterministic offline peer: grouped model options, `reasoning_effort` translation, `session/load` → `session/resume`, primed-session reuse, deferred interjection |
+| Devin after the multi-backend refactor | Offline peer tests and the PATH chain pass. No standalone Devin CLI was available for a post-refactor real handshake |
+| DeepSeek Harness, real `dsh acp` | **Not validated.** `@deepseek-ai/dsh` did not finish installing in the development environment. Behavior follows the dsh ACP source, not a live run |
 | Node 22/24, Windows and Linux | CI: offline protocol tests; both launchers are built and smoke-tested against the fake peer; the Docker image builds without external downloads |
 | Real inference on Windows | Not exercised in this revision; the Linux chain above covers the same adapter code path |
-| Authenticated model discovery | Verified: after `devin auth login`, `session/new` returned the account's real models through the adapter (free tier: `swe-2-flash-medium`, `swe-1-6-slow`); real `session/prompt` returned `stopReason: end_turn` with usage accounting |
+| Authenticated model discovery | Verified before the multi-backend refactor: after `devin auth login`, `session/new` returned the account's real models through the adapter (free tier: `swe-2-flash-medium`, `swe-1-6-slow`); real `session/prompt` returned `stopReason: end_turn` with usage accounting |
 | macOS | The POSIX launcher/discovery code paths apply, but nothing is verified |
 | Cross-computer migration and export | Not verified |
 
@@ -27,7 +30,7 @@ The offline test peer is independently authored and never invokes a model or too
 - Raft's Grok login/update actions are not backend management commands. Manage Devin through its official CLI; manage dsh providers and keys via `dsh web` or `~/.dsh` files.
 - One backend per adapter installation — the `grok` slot resolves to a single executable. Two Raft agents cannot run different backends through one install concurrently.
 - Switching `backend` after use: refresh Raft's model list and re-select a prefixed model; the other backend's model/session IDs are rejected explicitly. Raft does not detect the swap — the adapter's error messages are the reset signal.
-- dsh specifics: no mid-turn interjections (queued and sent as the next prompt); no `session/delete` (close leaves the session listed); `dsh acp` cold-starts a plugin kernel, which the adapter hides behind an immediate `initialize` response.
+- dsh specifics: no mid-turn interjections (queued and sent as the next prompt); no `session/delete` (close leaves the session listed); `initialize` waits for the dsh kernel and primed session, so a slow cold start can exceed Raft's ~15 s model-detection window. The cold-start time has not been measured. `npm run models:refresh` also leaves one listed session per run.
 - Standing instructions are forwarded as a marked first-prompt block, not a native system-prompt replacement. They are sent again after a resume.
 - Raft's Grok transcript locator does not find Devin's native transcripts. A handoff may contain identity only; complete transcript export/migration is not provided.
 - Same-machine session loading was tested. Cross-computer transfer is not established by that test.
@@ -49,6 +52,6 @@ The offline test peer is independently authored and never invokes a model or too
 | Proxy connection failure | Ensure the configured local proxy is running and the Computer process has the intended configuration/environment |
 | Build cannot overwrite launcher | Stop agents using this checkout before rebuilding |
 | Node executable no longer exists | Reinstall/select Node 22+, rebuild (`build.sh` / `Build.ps1`), and restart the agents |
-| `grok` on PATH resolves elsewhere | Another `grok` earlier in PATH shadows `~/.local/bin/grok`; move it or use `--replace-adapter` if it is an older adapter install |
+| `grok` on PATH resolves elsewhere | Another `grok` earlier in PATH shadows `~/.local/bin/grok`; move it or use `--replace-adapter` if it is an older install of this adapter under the current name |
 
 Include sanitized errors and versions in an issue. Do not attach account files, raw transcripts, or full environment/PATH dumps.

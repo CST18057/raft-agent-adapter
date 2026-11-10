@@ -32,11 +32,11 @@ flowchart LR
 - Devin 专用：中途消息通过 Devin 原生 mid-turn prompt 能力送达。
 - dsh 专用：dsh 拒绝同会话第二个在途 prompt，中途消息会入队，在当前轮结束后自动作为下一轮提示补发。
 
-已在 Linux 上完成**真实端到端验证**：真实 Raft 服务器经由 Raft Computer 1.0.67 → 本适配器 → 已登录的 Devin CLI 3000.12.32 驱动 Agent，向其发送 DM 返回了真实模型推理回复。集成最初在 Windows 上使用 Raft Computer 1.0.63 验证。完整证据分级见[验证矩阵](docs/compatibility.md)。
+Devin CLI 已在 Linux 上完成**真实端到端验证**：真实 Raft 服务器经由 Raft Computer 1.0.67 → 本适配器 → 已登录的 Devin CLI 3000.12.32 驱动 Agent，向其发送 DM 返回了真实模型推理回复。该次验证早于多后端重构；DeepSeek Harness 尚未对真实 `dsh` 二进制完成验证。集成最初在 Windows 上使用 Raft Computer 1.0.63 验证。完整证据分级见[验证矩阵](docs/compatibility.md)。
 
 ## Linux 快速开始
 
-准备 **Node.js 22+**、Git、可用的 Linux 版 Raft Computer，以及已安装并完成登录的 [Devin CLI](https://docs.devin.ai/)。先用官方脚本安装 Devin 并登录一次：
+准备 **Node.js 22+**、Git、可用的 Linux 版 Raft Computer，以及已安装并完成登录的 [Devin CLI](https://docs.devin.ai/)。先用官方脚本安装 Devin 并登录一次（使用 DeepSeek Harness 请见[对应章节](#deepseek-harness-后端)）：
 
 ```sh
 curl -fsSL https://cli.devin.ai/install.sh | bash   # 安装到 ~/.local/bin/devin
@@ -75,7 +75,7 @@ cd raft-agent-adapter
 
 `Refresh-Models.ps1` 会读取各模型的原生思考选项；`Test-Adapter.ps1` 会检查编译后启动器的 ACP 握手和模型发现。两者都会访问本机 Devin CLI，均不会提交模型推理提示。配置检查失败时，先确认官方 Devin 登录和网络正常。
 
-若已存在另一个 `grok.exe`，安装会停止，真实 Grok 安装无法直接共用此入口。迁移**本适配器的旧目录**时，先停止相关 Agent，再执行 `Install.ps1 -ReplaceAdapter`。安装器会核对旧程序的适配器身份，并替换其用户 PATH 条目；原用户 PATH 会备份到被 Git 忽略的本地安装状态中。Linux 下对应命令为 `install.sh --replace-adapter`。
+若已存在另一个 `grok.exe`，安装会停止，真实 Grok 安装无法直接共用此入口。迁移**本适配器的旧目录**时，先停止相关 Agent，再执行 `Install.ps1 -ReplaceAdapter`。安装器会核对旧程序的适配器身份，并替换其用户 PATH 条目；原用户 PATH 会备份到被 Git 忽略的本地安装状态中。Linux 下对应命令为 `install.sh --replace-adapter`。改名之前安装的入口（身份为 `raft-devin-adapter`）会被拒绝替换：请先在其原目录运行 `uninstall.sh` 或 `Uninstall.ps1`。
 
 ## DeepSeek Harness 后端
 
@@ -86,14 +86,14 @@ DeepSeek Harness（`dsh`）通过 `dsh acp` 提供 ACP（npm 包 `@deepseek-ai/d
 - dsh 只报告 `sessionCapabilities: { close, list, resume }`，没有 `loadSession`。Raft 的 Grok driver 硬性要求 `loadSession: true`，适配器会注入该能力并把 `session/load` 映射为 `session/resume`；resume 失败（`not resumable`、`cwd does not match`）会翻译成 missing-session 形态，让 Raft 自动开新会话，无需手动重置。
 - dsh 没有 `session/delete`，只有 `session/close`；关闭的会话仍留在 `session/list`，属 dsh 正常行为。
 - 模型选项可能是分组嵌套结构，value 是 `[provider, model]` 的 JSON 字符串；适配器会扁平化为 `dsh:<value>` 形式的 ID。
-- 用于探测模型目录的 primed 会话会被记入适配器本地状态，后续启动通过 `session/list` + `session/resume` 复用，不会因 Raft 反复探测堆积废弃会话。
+- 用于探测模型目录的 primed 会话 ID 保存在适配器本地状态中，后续启动通过 `session/resume` 续用，Raft 反复探测不会留下新的废弃会话。`npm run models:refresh` 每次仍会开一个会话，dsh 无法删除，因此它会留在会话列表中。
 - 在途 prompt 期间收到的插话会入队，当前轮结束后自动作为下一条 `session/prompt` 补发。
 
-`dsh acp` 启动的是 Cordis 插件内核，冷启动可能逼近 Raft 约 15 秒的模型探测窗口；适配器对 `initialize` 立即应答，内核延迟到首个会话调用时才拉起，探测不受影响。接入前请先在 `~/.dsh` 配好 provider 与凭据（可用 `dsh web` 或直接编辑 yaml）。
+`dsh acp` 启动的是 Cordis 插件内核。`initialize` 要等内核和 primed 会话就绪后才应答，冷启动耗时尚未实测。若超过 Raft 约 15 秒的模型探测窗口，Raft 将列不出 DSH 模型。接入前请先在 `~/.dsh` 配好 provider 与凭据（可用 `dsh web` 或直接编辑 yaml）。
 
 ## 切换后端注意事项
 
-Raft 并不知道 `grok` 入口后面是哪家后端——切换 `backend` 后模型列表、会话 ID、思考档位词汇全部改变，而 Raft 无感知。切换后请刷新 Raft 模型列表并重选带前缀的模型；属于另一后端的旧模型 ID 和会话 ID 会被明确拒绝而不是静默错路由。最干净的"重置"方式是让 Raft 走会话恢复失败的回退路径开新会话。
+Raft 并不知道 `grok` 入口后面是哪家后端——切换 `backend` 后模型列表、会话 ID、思考档位词汇全部改变，而 Raft 无感知。切换后请刷新 Raft 模型列表并重选带前缀的模型。另一后端的旧模型 ID 会被明确拒绝，而不是静默错路由。对 DSH 而言，未知会话 ID 会被报告为缺失，Raft 随之开新会话；Devin 的恢复错误则原样透传。最干净的"重置"方式是让 Raft 走会话恢复失败的回退路径开新会话。
 
 ## 如何选择 SWE-2 Max
 
@@ -125,14 +125,14 @@ platform/linux/install.sh --devin-exe /opt/devin/devin --proxy-url http://127.0.
 
 | 配置项 | 优先级 / 行为 |
 | --- | --- |
-| `backend` | `RAFT_ADAPTER_BACKEND` → 本地 `backend` → `devin` |
+| `backend` | `RAFT_ADAPTER_BACKEND` → 本地 `backend` → `auto`（找到 Devin CLI 则用 Devin，否则用 DSH） |
 | Devin 程序路径 | `DEVIN_EXE` → 本地 `devinExe` → 标准安装路径 → PATH |
 | dsh 程序路径 | `DSH_EXE` → 本地 `dshExe` → PATH 上的 `dsh`；参数默认 `acp`，可用 `dshArgs` 覆盖 |
-| 代理 | `RAFT_ADAPTER_PROXY` → `DEVIN_ADAPTER_PROXY` → 本地 `proxyUrl` → 继承环境变量 |
-| 配置文件 | `RAFT_ADAPTER_CONFIG` → `DEVIN_ADAPTER_CONFIG` → 本目录 `adapter.config.json` |
+| 代理 | `RAFT_ADAPTER_PROXY` → 本地 `proxyUrl` → 继承环境变量 |
+| 配置文件 | `RAFT_ADAPTER_CONFIG` → 本目录 `adapter.config.json` |
 | `defaultModel` | 后端未返回当前模型时的展示 ID 兜底；以原生会话配置为准 |
 
-显式代理只为**后端子进程**设置 `HTTP_PROXY`、`HTTPS_PROXY` 和 `ALL_PROXY`，不会启动代理服务器，也不会修改系统代理，不依赖特定代理软件。代理服务需要提前运行。没有显式配置时，子进程继承 Raft Computer 的环境；仅继承环境变量不能保证流量会遵循系统代理。SOCKS 的实际支持取决于所安装的 Devin CLI。
+显式代理只为**后端子进程**设置 `HTTP_PROXY`、`HTTPS_PROXY` 和 `ALL_PROXY`，不会启动代理服务器，也不会修改系统代理，不依赖特定代理软件。代理服务需要提前运行。没有显式配置时，子进程继承 Raft Computer 的环境；仅继承环境变量不能保证流量会遵循系统代理。SOCKS 的实际支持取决于所用后端的 CLI。
 
 这份独立配置保存在 Raft 目录之外，Raft 升级后仍会保留；它与代理软件设置的全局代理相互独立。请勿提交代理凭据或 Devin 账户文件。
 
