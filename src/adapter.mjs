@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { createInterface } from 'node:readline';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Rpc } from './rpc.mjs';
 import { option, thinkingInfo, catalogKey, reasoningMeta } from './model-config.mjs';
@@ -37,7 +37,13 @@ let hostRequestId = 0;
 const hostRequests = new Map();
 const sessions = new Map();
 
-rpc.onNotification = message => { if (!loading) send(message); };
+rpc.onNotification = message => {
+  if (loading) return;
+  send(message);
+  const update = message.params?.update;
+  const usage = update?.sessionUpdate === 'usage_update' ? backend.usageOf?.(update) : null;
+  if (usage) sessions.get(message.params.sessionId)?.usageByRequest.set(usage.key, usage.usage);
+};
 rpc.onRequest = message => new Promise((resolve, reject) => {
   const id = `${backend.id}-host-${++hostRequestId}`;
   const timer = setTimeout(() => { hostRequests.delete(id); reject(new Error(`Raft did not answer the ${backend.displayName} host request`)); }, 120000);
@@ -49,6 +55,19 @@ function state(sessionId) {
   const value = sessions.get(sessionId);
   if (!value) throw Object.assign(new Error('Session not opened by this adapter process'), { rpc: { code: -32602 } });
   return value;
+}
+
+const knownSessionDir = () => path.join(localDir(), `${backend.id}-sessions`);
+const sessionMarker = id => /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(id ?? '') ? path.join(knownSessionDir(), id) : null;
+function rememberSession(id) {
+  const marker = sessionMarker(id);
+  if (!marker) return;
+  try { mkdirSync(knownSessionDir(), { recursive: true }); writeFileSync(marker, ''); }
+  catch (error) { console.error(`[raft-agent-adapter] Cannot record ${backend.displayName} session ${id}: ${error.message}`); }
+}
+function knownSession(id) {
+  const marker = sessionMarker(id);
+  return Boolean(marker && existsSync(marker));
 }
 
 function modelResult(session) {
@@ -82,16 +101,26 @@ async function releasePrimed() {
   }
 }
 
-function drainDeferred(current, sessionId) {
+async function drainDeferred(current, sessionId) {
   // Backend without mid-turn delivery: queued interjections are sent as one
   // follow-up prompt once the active turn settles, so messages are not lost.
-  if (!current.deferred.length) return;
-  const texts = current.deferred.splice(0);
-  rpc.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: texts.join('\n') }] }, 24 * 60 * 60 * 1000)
-    .catch(error => {
-      if (/already in flight/i.test(error.message)) current.deferred.unshift(...texts);
-      else console.error(`[raft-agent-adapter] Dropped ${texts.length} deferred interjection(s): ${error.message}`);
-    });
+  while (current.deferred.length) {
+    const texts = current.deferred.splice(0);
+    const requeued = await rpc.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: texts.join('\n') }] }, 24 * 60 * 60 * 1000)
+      .then(() => false, error => {
+        if (/already in flight/i.test(error.message)) { current.deferred.unshift(...texts); return true; }
+        console.error(`[raft-agent-adapter] Dropped ${texts.length} deferred interjection(s): ${error.message}`);
+        return false;
+      });
+    if (requeued || !backend.queuesPrompts) break;
+  }
+}
+
+function sumUsage(usages) {
+  if (!usages.length) return null;
+  const total = {};
+  for (const usage of usages) for (const [name, count] of Object.entries(usage)) total[name] = (total[name] ?? 0) + count;
+  return total;
 }
 
 async function prompt(params, isMidTurn = false) {
@@ -101,6 +130,7 @@ async function prompt(params, isMidTurn = false) {
     content.unshift({ type: 'text', text: '[Raft host instructions for this agent session]\n' + current.standingPrompt + '\n[End Raft host instructions]' });
     current.needsInstructions = false;
   }
+  current.usageByRequest.clear();
   const pending = rpc.request('session/prompt', { ...params, prompt: content }, 24 * 60 * 60 * 1000);
   if (isMidTurn) {
     current.midTurns.add(pending);
@@ -110,13 +140,17 @@ async function prompt(params, isMidTurn = false) {
   // Devin accepts prompts during an active turn. Keep the Raft turn open
   // until those deliveries finish, instead of acknowledging an unexecuted queue.
   while (current.midTurns.size) await Promise.allSettled([...current.midTurns]);
-  drainDeferred(current, params.sessionId);
-  return { ...result, _meta: { ...result._meta, ...(result.usage ? { usage: result.usage } : {}) } };
+  const drained = drainDeferred(current, params.sessionId);
+  if (backend.queuesPrompts) await drained;
+  const usage = result.usage ?? sumUsage([...current.usageByRequest.values()]);
+  return { ...result, _meta: { ...result._meta, ...(usage ? { usage } : {}) } };
 }
 
 async function openPrimed() {
   const stored = backend.persistentPrimed ? readBackendState(localDir(), backend.id) : null;
-  const opened = await backend.openPrimed(rpc, process.cwd(), stored);
+  const usable = stored && (!backend.knownSessionsOnly || knownSession(stored.primedSessionId)) ? stored : null;
+  const opened = await backend.openPrimed(rpc, process.cwd(), usable);
+  if (backend.knownSessionsOnly) rememberSession(opened.sessionId);
   if (backend.persistentPrimed && opened.sessionId !== stored?.primedSessionId) {
     writeBackendState(localDir(), backend.id, { primedSessionId: opened.sessionId, primedCwd: process.cwd() });
   }
@@ -131,6 +165,7 @@ async function handle(method, params) {
     return { ...initialized, agentCapabilities: capabilities, _meta: { ...initialized._meta, modelState: modelResult(primed), 'raft-agent-adapter': { version, backend: backend.id } } };
   }
   if (method === 'authenticate') {
+    if (backend.interactiveAuth) throw new Error(`${backend.displayName} sign-in is interactive and would log out the current account; sign in with the codebuddy CLI or set CODEBUDDY_API_KEY instead.`);
     const result = await rpc.request(method, params, 120000);
     // Account state changed: drop the unauthenticated primed session so the
     // next session open discovers the real model options for the account.
@@ -139,6 +174,7 @@ async function handle(method, params) {
   }
   if (method === 'session/new' || method === 'session/load') {
     const { _meta: meta = {}, ...nativeParams } = params;
+    if (method === 'session/load' && backend.knownSessionsOnly && !knownSession(params.sessionId)) throw backend.missingSessionError(params.sessionId);
     if (method === 'session/load' && !backend.nativeLoad && sessions.has(params.sessionId)) {
       // The session is already live in this bridge process; there is nothing
       // to resume. (dsh rejects a resume of an active session.)
@@ -156,14 +192,22 @@ async function handle(method, params) {
       loading = method === 'session/load' && backend.nativeLoad;
       try { opened = await rpc.request(nativeMethod, nativeCall, 90000); }
       catch (error) {
-        if (method === 'session/load' && backend.missingSessionError) throw backend.missingSessionError(params.sessionId, error);
+        if (method === 'session/load' && backend.missingSessionError && !backend.knownSessionsOnly) throw backend.missingSessionError(params.sessionId, error);
         throw error;
       }
       finally { loading = false; }
     }
     const sessionId = opened.sessionId ?? params.sessionId;
     if (!sessionId) throw new Error(`${backend.displayName} did not return a session ID`);
-    sessions.set(sessionId, { standingPrompt: meta.systemPromptOverride ?? '', needsInstructions: true, midTurns: new Set(), deferred: [] });
+    if (backend.knownSessionsOnly) rememberSession(sessionId);
+    if (backend.permissionMode) {
+      try {
+        await rpc.request('session/set_config_option', { sessionId, configId: 'mode', value: backend.permissionMode });
+      } catch (error) {
+        console.error(`[raft-agent-adapter] ${backend.displayName} did not accept permission mode ${backend.permissionMode}: ${error.message}`);
+      }
+    }
+    sessions.set(sessionId, { standingPrompt: meta.systemPromptOverride ?? '', needsInstructions: true, midTurns: new Set(), deferred: [], usageByRequest: new Map() });
     return { ...opened, sessionId };
   }
   if (method === 'session/set_model') {
@@ -186,6 +230,7 @@ async function handle(method, params) {
   if (method === 'session/prompt') return prompt(params);
   if (method === 'session/delete' || method === 'session/close') {
     state(params.sessionId);
+    if (!backend.closeMethods.length) { sessions.delete(params.sessionId); return {}; }
     // Forward the requested method when the backend speaks it (Devin's
     // delete-vs-close distinction is meaningful); otherwise map to close.
     const candidates = backend.closeMethods.includes(method) ? [method] : backend.closeMethods;

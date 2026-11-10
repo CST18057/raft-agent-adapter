@@ -3,7 +3,7 @@
   "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Run ACP-speaking agents (Devin CLI, DeepSeek Harness) as an internal Raft agent through its existing Grok ACP runtime slot.",
+  "description": "Run ACP-speaking agents (Devin CLI, DeepSeek Harness, CodeBuddy Code) as an internal Raft agent through its existing Grok ACP runtime slot.",
   "license": "MIT",
   "author": "sealpp",
   "repository": {
@@ -16,7 +16,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test test/adapter.test.mjs test/adapter-dsh.test.mjs",
+    "test": "node --test test/adapter.test.mjs test/adapter-dsh.test.mjs test/adapter-codebuddy.test.mjs",
     "check": "node --check src/adapter.mjs && node --check src/config.mjs && node --check src/rpc.mjs && node --check src/model-config.mjs && node --check src/backends.mjs",
     "smoke": "node scripts/smoke.mjs",
     "models:refresh": "node scripts/refresh-models.mjs",
@@ -28,6 +28,7 @@
     "deepseek",
     "deepseek-harness",
     "dsh",
+    "codebuddy",
     "acp",
     "agent",
     "adapter",

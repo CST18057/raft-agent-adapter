@@ -7,13 +7,13 @@
 [![状态：实验性](https://img.shields.io/badge/status-experimental-yellow.svg)](docs/compatibility.md)
 [![GitHub stars](https://img.shields.io/github/stars/sealpp/raft-agent-adapter?style=social)](https://github.com/sealpp/raft-agent-adapter/stargazers)
 
-**Raft 的内部 Agent 本来用不了 Devin CLI 和 DeepSeek Harness——这个适配器让它们能用。** 装好之后所选后端就是一个真实运行时：模型列表里出现带前缀的选项（`Devin · …` / `DSH · …`），思考强度按后端自己的档位走，权限请求、流式更新照常转发，会话能续上。Windows 和 Linux 都行，不动 Raft 本身。
+**Raft 的内部 Agent 本来用不了 Devin CLI、DeepSeek Harness 和 CodeBuddy Code——这个适配器让它们能用。** 装好之后所选后端就是一个真实运行时：模型列表里出现带前缀的选项（`Devin · …` / `DSH · …` / `CodeBuddy · …`），思考强度按后端自己的档位走，权限请求、流式更新照常转发，会话能续上。Windows 和 Linux 都行，不动 Raft 本身。
 
 ```mermaid
 flowchart LR
     A[Raft 内部 Agent] --> B[Grok Build ACP 入口]
     B --> C[raft-agent-adapter]
-    C --> D[Devin CLI ACP 或 DeepSeek Harness ACP]
+    C --> D[Devin CLI、DeepSeek Harness 或 CodeBuddy Code ACP]
 ```
 
 适配器在两头各说各的协议：对 Raft 它是一个 Grok 运行时，对后端它是一个 ACP 主机。提示、权限请求、流式更新和用量都如实转发，已有的会话也能直接续上，不会把历史重放进 Raft。不改 Raft 任何文件——安装只是往 PATH 加一个 `grok` 可执行文件。一个适配器实例同时只接一个后端，用 `backend` 配置项选择。
@@ -24,15 +24,16 @@ flowchart LR
 
 ## 已实现能力
 
-- 在 Raft 模型列表中展示带 `Devin · …` / `DSH · …` 前缀的模型。
+- 在 Raft 模型列表中展示带 `Devin · …` / `DSH · …` / `CodeBuddy · …` 前缀的模型。
 - 根据后端实际返回的选项，选择模型和思考强度（Devin 的 `thought_level`，dsh 的 `reasoning_effort`）。
 - 将 Raft 的角色常驻指令作为有标记的指令块，附加到每次启动或恢复后的第一条提示。
 - 转发权限请求、流式更新和用量数据。
 - 在同一台电脑上使用原会话 ID 恢复会话，并抑制历史回放重复写入 Raft。
 - Devin 专用：中途消息通过 Devin 原生 mid-turn prompt 能力送达。
 - dsh 专用：dsh 拒绝同会话第二个在途 prompt，中途消息会入队，在当前轮结束后自动作为下一轮提示补发。
+- CodeBuddy Code 专用：在途消息会入队，在当前轮结束后作为下一轮提示投递。
 
-Devin CLI 已在 Linux 上完成**真实端到端验证**：真实 Raft 服务器经由 Raft Computer 1.0.67 → 本适配器 → 已登录的 Devin CLI 3000.12.32 驱动 Agent，向其发送 DM 返回了真实模型推理回复。该次验证早于多后端重构；DeepSeek Harness 尚未对真实 `dsh` 二进制完成验证。集成最初在 Windows 上使用 Raft Computer 1.0.63 验证。完整证据分级见[验证矩阵](docs/compatibility.md)。
+Devin CLI 已在 Linux 上完成**真实端到端验证**：真实 Raft 服务器经由 Raft Computer 1.0.67 → 本适配器 → 已登录的 Devin CLI 3000.12.32 驱动 Agent，向其发送 DM 返回了真实模型推理回复。该次验证早于多后端重构；DeepSeek Harness 尚未对真实 `dsh` 二进制完成验证。CodeBuddy Code 2.179.3 已通过适配器接入国内版已登录账号完成验证：握手、含逐模型思考档位的 17 个模型目录、模型与思考强度选择、一次以 `end_turn` 结束的真实 prompt，以及跨进程的会话加载。在途行为已用两条重叠的 prompt 检查：CodeBuddy 会排队第二条并在第一条结束后执行，但会立即确认。权限请求尚未验证。此前不登录账号的检查覆盖了握手、思考档位目录、适配器本地删除会话和未登录拒绝。集成最初在 Windows 上使用 Raft Computer 1.0.63 验证。完整证据分级见[验证矩阵](docs/compatibility.md)。
 
 ## Linux 快速开始
 
@@ -91,6 +92,25 @@ DeepSeek Harness（`dsh`）通过 `dsh acp` 提供 ACP（npm 包 `@deepseek-ai/d
 
 `dsh acp` 启动的是 Cordis 插件内核。`initialize` 要等内核和 primed 会话就绪后才应答，冷启动耗时尚未实测。若超过 Raft 约 15 秒的模型探测窗口，Raft 将列不出 DSH 模型。接入前请先在 `~/.dsh` 配好 provider 与凭据（可用 `dsh web` 或直接编辑 yaml）。
 
+## CodeBuddy Code 后端
+
+CodeBuddy Code 通过 `codebuddy --acp` 提供 ACP（npm 包 `@tencent-ai/codebuddy-code`）。在 `adapter.config.json` 里设 `"backend": "codebuddy"`（或 `RAFT_ADAPTER_BACKEND=codebuddy`）并刷新模型。适配器在 PATH 上查找 `codebuddy`；用 `codebuddyExe` / `CODEBUDDY_EXE` 指定其他可执行文件，用 `codebuddyArgs` 修改参数。`auto` 从不自动选择 CodeBuddy。
+
+先完成登录。没有凭据时 `session/new` 会报 `Authentication required`，Raft 会将其显示为未认证。二选一：在本机运行一次 `codebuddy` 并完成登录，或在启动 Raft 的环境中设置 `CODEBUDDY_API_KEY`（国内版和 iOA 站点按 CodeBuddy 文档设置 `CODEBUDDY_INTERNET_ENVIRONMENT`）。该后端下适配器从不转发 `authenticate`：CodeBuddy 的登录是交互式的，会先登出当前账户。
+
+适配器处理的协议差异：
+
+- CLI 没有 `session/close`、`session/delete` 和 `session/list`。关闭会话只会在适配器内部忘记它；CLI 仍把它保存在 `~/.codebuddy/projects/` 下。
+- 每次 `session/new` 都会立即落盘，因此 primed 目录会话 ID 保存在 `.local/backend-state.json` 中并续用，与 DeepSeek Harness 相同。
+- 思考档位按模型不同。`npm run models:refresh` 会把每个模型的档位记录进目录。
+- 在途消息会入队，在当前轮结束后投递。CodeBuddy 本身也会排队第二条在途 prompt，但会立即以 `end_turn` 确认，因此适配器只在当前轮结束后发送插话，并保持 Raft 轮次打开，直到插话执行完毕。
+- 权限模式在每次会话打开时（新建、续用或加载）通过 `session/set_config_option` 设为 `fullAccess`：真正的全放行，跳过所有权限提示，包括危险命令检查——与 Raft 给 Codex 的配置一致（`approvalPolicy: "never"` + `sandbox_mode: "danger-full-access"`）。显式 `deny` 规则仍然生效。CodeBuddy 还提供 `default`（Always Ask）、`acceptEdits`、`plan`、`auto`、`dontAsk` 和 `bypassPermissions`，适配器目前不提供切换入口。若某个 CodeBuddy 版本没有 `mode` 配置项，适配器会记录警告并照常打开会话。
+- token 用量以逐请求的 `usage_update` 通知送达，而不是放在 prompt 结果里。适配器把它们求和后放进 prompt 的 `_meta.usage`（ACP 的 usage 形状：`inputTokens`、`outputTokens`、`totalTokens`），同时原样转发这些通知。缓存和推理 token 不单独上报，避免重复计数。已在真实账号上验证：结果等于逐请求更新去重后的总和。核对过的请求里，缓存命中是输入 token 的一部分，推理 token 被假设包含在输出总数内。
+
+已知限制：适配器把自己创建的会话记录在 `.local/codebuddy-sessions/` 下。对其他会话 ID 的 `session/load` 会报告为 `session not found`，因此 Raft 会像对待 DSH 那样开新会话。直接在 `codebuddy` 终端界面里创建的会话，因此不能通过 Raft 续接。另一个边界情况：如果手动删除了会话文件，适配器仍认为该 ID 已知，恢复时 CodeBuddy 会把它重建为空会话。删除 `.local/`（或使用不含它的新检出目录）也会丢失这份记录。已在 Linux 上针对 CodeBuddy 2.147.0 和 2.179.3 验证。CodeBuddy 发版频繁，每次升级后请刷新模型并重新跑握手。
+
+延迟插话的一次实测观察：补发回复有一次在 Raft 轮次内流式送达，另一次在轮次响应后几毫秒才到达。ACP 并不保证某个 prompt 的 `session/update` 通知都先于其响应到达，因此回复可能恰好落在轮次边界之后；Raft 如何归属这类尾随更新尚未验证。
+
 ## 切换后端注意事项
 
 Raft 并不知道 `grok` 入口后面是哪家后端——切换 `backend` 后模型列表、会话 ID、思考档位词汇全部改变，而 Raft 无感知。切换后请刷新 Raft 模型列表并重选带前缀的模型。另一后端的旧模型 ID 会被明确拒绝，而不是静默错路由。对 DSH 而言，未知会话 ID 会被报告为缺失，Raft 随之开新会话；Devin 的恢复错误则原样透传。最干净的"重置"方式是让 Raft 走会话恢复失败的回退路径开新会话。
@@ -125,9 +145,10 @@ platform/linux/install.sh --devin-exe /opt/devin/devin --proxy-url http://127.0.
 
 | 配置项 | 优先级 / 行为 |
 | --- | --- |
-| `backend` | `RAFT_ADAPTER_BACKEND` → 本地 `backend` → `auto`（找到 Devin CLI 则用 Devin，否则用 DSH） |
+| `backend` | `RAFT_ADAPTER_BACKEND` → 本地 `backend` → `auto`（找到 Devin CLI 则用 Devin，否则用 DSH；从不自动选 CodeBuddy） |
 | Devin 程序路径 | `DEVIN_EXE` → 本地 `devinExe` → 标准安装路径 → PATH |
 | dsh 程序路径 | `DSH_EXE` → 本地 `dshExe` → PATH 上的 `dsh`；参数默认 `acp`，可用 `dshArgs` 覆盖 |
+| CodeBuddy 程序路径 | `CODEBUDDY_EXE` → 本地 `codebuddyExe` → PATH 上的 `codebuddy`；参数默认 `--acp`，可用 `codebuddyArgs` 覆盖 |
 | 代理 | `RAFT_ADAPTER_PROXY` → 本地 `proxyUrl` → 继承环境变量 |
 | 配置文件 | `RAFT_ADAPTER_CONFIG` → 本目录 `adapter.config.json` |
 | `defaultModel` | 后端未返回当前模型时的展示 ID 兜底；以原生会话配置为准 |

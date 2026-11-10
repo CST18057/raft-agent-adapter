@@ -7,13 +7,13 @@
 [![Status: Experimental](https://img.shields.io/badge/status-experimental-yellow.svg)](docs/compatibility.md)
 [![GitHub stars](https://img.shields.io/github/stars/sealpp/raft-agent-adapter?style=social)](https://github.com/sealpp/raft-agent-adapter/stargazers)
 
-**Raft's internal agents can't use Devin CLI or DeepSeek Harness — this adapter fixes that.** Once installed, your chosen backend becomes a real runtime option: backend-prefixed models (`Devin · …` / `DSH · …`) show up in Raft's model picker, thinking strength maps to the backend's own levels, permission requests and streamed updates pass through, sessions resume later. Windows and Linux; Raft itself isn't touched.
+**Raft's internal agents can't use Devin CLI, DeepSeek Harness or CodeBuddy Code — this adapter fixes that.** Once installed, your chosen backend becomes a real runtime option: backend-prefixed models (`Devin · …` / `DSH · …` / `CodeBuddy · …`) show up in Raft's model picker, thinking strength maps to the backend's own levels, permission requests and streamed updates pass through, sessions resume later. Windows and Linux; Raft itself isn't touched.
 
 ```mermaid
 flowchart LR
     A[Raft internal agent] --> B[Grok Build ACP slot]
     B --> C[raft-agent-adapter]
-    C --> D[Devin CLI ACP or DeepSeek Harness ACP]
+    C --> D[Devin CLI, DeepSeek Harness or CodeBuddy Code ACP]
 ```
 
 The adapter translates between the two ACP dialects: Raft sees a Grok runtime, and the chosen backend sees an ACP host. Prompts, permission requests, streamed updates and usage data pass through both ways, and native sessions can resume later without replaying history. Nothing inside Raft is patched — install just adds a `grok` executable to your PATH. One backend is active per installation, selected by the `backend` setting.
@@ -31,8 +31,9 @@ If it works for you, a [star](https://github.com/sealpp/raft-agent-adapter) help
 - Existing session IDs can resume on the same computer, without replaying history into Raft.
 - Devin only: active-turn messages are delivered through Devin's native mid-turn prompt capability.
 - DeepSeek Harness only: mid-turn messages are queued and delivered automatically as the next prompt after the current turn finishes — dsh rejects a second in-flight prompt.
+- CodeBuddy Code only: active-turn messages are queued and delivered after the current turn, like DeepSeek Harness.
 
-Devin CLI was verified **live end-to-end** on Linux — a real Raft server drove an agent through Raft Computer 1.0.67 → this adapter → a logged-in Devin CLI 3000.12.32, and a DM returned a real inference reply. That run predates the multi-backend refactor. DeepSeek Harness has not yet been run against a real `dsh` binary. The integration was originally exercised on Windows with Raft Computer 1.0.63. Full evidence breakdown: [validation matrix](docs/compatibility.md).
+Devin CLI was verified **live end-to-end** on Linux — a real Raft server drove an agent through Raft Computer 1.0.67 → this adapter → a logged-in Devin CLI 3000.12.32, and a DM returned a real inference reply. That run predates the multi-backend refactor. DeepSeek Harness has not yet been run against a real `dsh` binary. CodeBuddy Code 2.179.3 was run through the adapter with a signed-in China-site account: the handshake, the 17-model catalog with per-model thinking levels, model and thinking selection, one real prompt that finished with `end_turn`, and a cross-process session load. Mid-turn behavior was checked with two overlapping prompts: CodeBuddy queues the second one and runs it after the first, but acknowledges it at once. Permission prompts are not yet validated. Earlier checks without an account covered the handshake, the thinking catalog, adapter-local session deletion, and the sign-in refusal. The integration was originally exercised on Windows with Raft Computer 1.0.63. Full evidence breakdown: [validation matrix](docs/compatibility.md).
 
 ## Quick start on Linux
 
@@ -91,6 +92,25 @@ Protocol differences handled by the adapter:
 
 `dsh acp` boots a Cordis plugin kernel, and `initialize` waits for that kernel and the primed catalog session before it answers. The cold-start time has not been measured. If it exceeds Raft's model-detection window (about 15 seconds), Raft will not list DeepSeek models. Configure providers and keys in `~/.dsh` (`dsh web` or the yaml files) before pointing Raft at it.
 
+## CodeBuddy Code backend
+
+CodeBuddy Code runs as `codebuddy --acp` (npm package `@tencent-ai/codebuddy-code`). Set `"backend": "codebuddy"` in `adapter.config.json` (or `RAFT_ADAPTER_BACKEND=codebuddy`), then refresh models. The adapter looks for `codebuddy` on PATH; set `codebuddyExe` / `CODEBUDDY_EXE` to use another binary and `codebuddyArgs` to change its arguments. `auto` never selects CodeBuddy.
+
+Sign in first. Without credentials `session/new` fails with `Authentication required`, which Raft shows as not authenticated. Either run `codebuddy` once on this computer and finish the sign-in, or set `CODEBUDDY_API_KEY` in the environment that starts Raft (and `CODEBUDDY_INTERNET_ENVIRONMENT` as CodeBuddy's documentation describes for its China and iOA sites). The adapter never forwards `authenticate` for this backend: CodeBuddy's sign-in is interactive and logs out the current account first.
+
+Protocol differences handled by the adapter:
+
+- The CLI has no `session/close`, `session/delete` or `session/list`. Closing a session only forgets it in the adapter; the CLI keeps it under `~/.codebuddy/projects/`.
+- Every `session/new` is written to disk immediately, so the primed catalog session is kept in `.local/backend-state.json` and resumed, as on DeepSeek Harness.
+- Thinking levels differ per model. `npm run models:refresh` records each model's levels in the catalog.
+- Active-turn messages are queued and delivered after the current turn. CodeBuddy also queues a second prompt sent mid-turn but acknowledges it at once with `end_turn`, so the adapter sends interjections only after the current turn and keeps the Raft turn open until they have run.
+- Permission mode is set to `fullAccess` through `session/set_config_option` every time a session opens (new, resumed or loaded): a true full pass that skips all permission prompts, including dangerous-command checks — the same posture Raft gives Codex (`approvalPolicy: "never"` + `sandbox_mode: "danger-full-access"`). Explicit `deny` rules still apply. CodeBuddy also offers `default` (Always Ask), `acceptEdits`, `plan`, `auto`, `dontAsk` and `bypassPermissions`; the adapter does not expose a switch for them. If a CodeBuddy build lacks the `mode` option, the adapter logs a warning and opens the session anyway.
+- Token usage arrives as per-request `usage_update` notifications instead of in the prompt result. The adapter sums them into the prompt's `_meta.usage` in ACP's usage shape (`inputTokens`, `outputTokens`, `totalTokens`) and forwards the notifications unchanged. Cache and reasoning counts are not reported separately. Verified live: the result equals the deduplicated sum of the per-request updates. In the checked requests, cache hits were part of the prompt tokens, and reasoning tokens are assumed to sit inside the completion total.
+
+Known limitation: the adapter records the sessions it creates under `.local/codebuddy-sessions/`. A `session/load` for any other session ID is reported as `session not found`, so Raft starts a fresh session as it does for DSH. Sessions created directly in the `codebuddy` terminal UI are therefore not resumed through Raft. Another edge case: if you delete a session's file on disk, the adapter still treats its ID as known, and CodeBuddy recreates it as an empty session on resume. Deleting `.local/` (or using a fresh checkout without it) also forgets the record. Verified against CodeBuddy 2.147.0 and 2.179.3 on Linux. CodeBuddy releases often, so refresh models and rerun the handshake after each upgrade.
+
+One live-run observation on deferred interjections: the follow-up's reply streamed inside the Raft turn in one run and a few milliseconds after the turn's response in another. ACP does not guarantee that a prompt's `session/update` notifications all precede its response, so a reply can land just past the turn boundary; how Raft attributes such trailing updates is unverified.
+
 ## Switching backends
 
 Raft does not know which backend sits behind the `grok` slot — switching `backend` changes models, session IDs, and thinking-option vocabulary without Raft noticing. After a switch, refresh Raft's model list and re-pick a backend-prefixed model. A stored model ID from the other backend is rejected with a clear error instead of being misrouted. On DeepSeek Harness, an unknown session ID is reported as missing, so Raft starts a fresh session; on Devin, resume errors pass through unchanged.
@@ -125,9 +145,10 @@ Or copy `adapter.config.example.json` to `adapter.config.json` and edit it. Use 
 
 | Setting | Priority / behavior |
 | --- | --- |
-| `backend` | `RAFT_ADAPTER_BACKEND` → local `backend` → `auto` (Devin if its CLI is found, otherwise DeepSeek Harness) |
+| `backend` | `RAFT_ADAPTER_BACKEND` → local `backend` → `auto` (Devin if its CLI is found, otherwise DeepSeek Harness; never CodeBuddy) |
 | Devin executable | `DEVIN_EXE` → local `devinExe` → standard install path → PATH |
 | dsh executable | `DSH_EXE` → local `dshExe` → `dsh` on PATH; args default to `acp` via `dshArgs` |
+| CodeBuddy executable | `CODEBUDDY_EXE` → local `codebuddyExe` → `codebuddy` on PATH; args default to `--acp` via `codebuddyArgs` |
 | Proxy | `RAFT_ADAPTER_PROXY` → local `proxyUrl` → inherited environment |
 | Configuration file | `RAFT_ADAPTER_CONFIG` → checkout's `adapter.config.json` |
 | `defaultModel` | Fallback display ID if the backend omits its current model; native session settings take precedence |

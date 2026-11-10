@@ -65,6 +65,11 @@ function findDshExe(explicit) {
   return candidates.find(existingFile) ?? null;
 }
 
+function findCodebuddyExe(explicit) {
+  if (explicit && !existingFile(explicit)) throw new Error('The configured CodeBuddy executable does not exist.');
+  return explicit || onPath('codebuddy') || (process.platform === 'win32' ? onPath('codebuddy.exe') : null);
+}
+
 export function nodeExecutable() {
   try {
     const recorded = fs.readFileSync(path.join(localDir(), 'node-path.txt'), 'utf8').trim();
@@ -84,16 +89,19 @@ export function loadConfig() {
   catch (e) { if (e.code !== 'ENOENT') throw new Error('Cannot read adapter configuration; check its JSON syntax.'); }
   const requested = process.env.RAFT_ADAPTER_BACKEND || local.backend || 'auto';
 
-  if (!['auto', 'devin', 'dsh'].includes(requested)) throw new Error(`Unknown adapter backend: ${requested} (expected auto, devin or dsh)`);
-  const devinExe = requested === 'dsh' ? null : findDevinExe(process.env.DEVIN_EXE || local.devinExe);
+  if (!['auto', 'devin', 'dsh', 'codebuddy'].includes(requested)) throw new Error(`Unknown adapter backend: ${requested} (expected auto, devin, dsh or codebuddy)`);
+  const devinExe = ['dsh', 'codebuddy'].includes(requested) ? null : findDevinExe(process.env.DEVIN_EXE || local.devinExe);
   const backendId = requested === 'auto' ? (devinExe ? 'devin' : 'dsh') : requested;
-  const executable = backendId === 'devin' ? devinExe : findDshExe(process.env.DSH_EXE || local.dshExe);
+  const executable = backendId === 'devin' ? devinExe
+    : backendId === 'dsh' ? findDshExe(process.env.DSH_EXE || local.dshExe)
+    : findCodebuddyExe(process.env.CODEBUDDY_EXE || local.codebuddyExe);
   if (!executable) {
-    throw new Error(requested === 'auto'
-      ? 'Neither Devin CLI nor DeepSeek Harness was found. Install one, or set DEVIN_EXE / DSH_EXE.'
-      : backendId === 'devin'
-        ? 'Devin CLI was not found. Install it first, or set DEVIN_EXE / devinExe to its executable path.'
-        : 'DeepSeek Harness was not found. Install @deepseek-ai/dsh first, or set DSH_EXE / dshExe to its executable path.');
+    const missing = {
+      devin: 'Devin CLI was not found. Install it first, or set DEVIN_EXE / devinExe to its executable path.',
+      dsh: 'DeepSeek Harness was not found. Install @deepseek-ai/dsh first, or set DSH_EXE / dshExe to its executable path.',
+      codebuddy: 'CodeBuddy was not found. Install @tencent-ai/codebuddy-code first, or set CODEBUDDY_EXE / codebuddyExe to its executable path.'
+    };
+    throw new Error(requested === 'auto' ? 'Neither Devin CLI nor DeepSeek Harness was found. Install one, or set DEVIN_EXE / DSH_EXE.' : missing[backendId]);
   }
 
   // Explicit local configuration overrides inherited proxy variables only for
@@ -105,9 +113,10 @@ export function loadConfig() {
     if (!['http:', 'https:', 'socks5:', 'socks5h:'].includes(parsed.protocol)) throw new Error('Unsupported proxy protocol.');
   }
 
-  const argOverride = backendId === 'devin' ? local.devinArgs : local.dshArgs;
+  const argOverride = local[`${backendId}Args`];
+  const defaultArgs = { devin: ['acp'], dsh: ['acp'], codebuddy: ['--acp'] };
   const args = Array.isArray(argOverride) && argOverride.every(arg => typeof arg === 'string')
-    ? argOverride : ['acp'];
+    ? argOverride : defaultArgs[backendId];
   // A resolved .js entry (dsh's npm lib/bin.js) runs under the recorded Node.
   const viaNode = executable.endsWith('.js');
   return {

@@ -4,5 +4,7 @@
   "devinArgs": ["acp"],
   "dshExe": "",
   "dshArgs": ["acp"],
+  "codebuddyExe": "",
+  "codebuddyArgs": ["--acp"],
   "proxyUrl": ""
 }
