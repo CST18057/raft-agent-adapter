@@ -15,7 +15,7 @@ foreach ($existing in @($possible | Where-Object { $_ } | Select-Object -Unique)
     if ([IO.Path]::GetFullPath($existing) -ieq $adapterExe) { continue }
     if (-not $ReplaceAdapter) { throw 'Another grok.exe exists. A real Grok installation cannot share this slot. Use -ReplaceAdapter only to migrate an older checkout of this adapter.' }
     $identity = (& $existing --version 2>$null | Select-Object -First 1)
-    if ($LASTEXITCODE -ne 0 -or $identity -notmatch '^raft-(agent|devin)-adapter ') { throw 'Refusing to replace an executable that does not identify as a raft-agent-adapter or raft-devin-adapter install.' }
+    if ($LASTEXITCODE -ne 0 -or $identity -notlike 'raft-agent-adapter *') { throw 'Refusing to replace an executable that does not identify as raft-agent-adapter.' }
     $previous += Split-Path -Parent $existing
 }
 $configPath = Join-Path $ProjectRoot 'adapter.config.json'

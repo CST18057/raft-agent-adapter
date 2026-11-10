@@ -30,7 +30,7 @@ done
 
 is_adapter() {
   [ -x "$1" ] || return 1
-  timeout 10 "$1" --version 2>/dev/null | head -n 1 | grep -qE '^raft-(agent|devin)-adapter '
+  timeout 10 "$1" --version 2>/dev/null | head -n 1 | grep -q '^raft-agent-adapter '
 }
 
 # Check every PATH entry plus the link target, mirroring the Windows
@@ -48,6 +48,10 @@ for dir in "${scan_dirs[@]:-}"; do
   # A trampoline created by an earlier install of THIS checkout points at
   # $TARGET inside its body, not via symlink resolution.
   [ -f "$candidate" ] && grep -qF "$ROOT/bin/grok" "$candidate" 2>/dev/null && continue
+  if [ -f "$candidate" ] && grep -q '^# Installed by raft-agent-adapter ' "$candidate"; then
+    target=$(sed -n 's/^exec "\([^"]*\)".*/\1/p' "$candidate" | head -n 1)
+    if [ ! -e "$target" ]; then previous+=("$candidate"); continue; fi
+  fi
   if [ "$REPLACE_ADAPTER" != true ]; then
     if is_adapter "$candidate"; then
       echo "Another adapter checkout owns $candidate. Re-run with --replace-adapter to migrate it." >&2
@@ -91,26 +95,10 @@ exec "$TARGET" "\$@"
 EOF
 chmod +x "$LINK"
 
-NODE_EXE=$(cat "$ROOT/.local/node-path.txt")
-PREV_LINKS=$(printf '%s\n' ${previous[@]+"${previous[@]}"}) \
-"$NODE_EXE" -e '
-  const fs = require("node:fs");
-  const [file, linkPath, binDir] = process.argv.slice(1);
-  let state = {};
-  try { state = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
-  if (!state.installedAt) {
-    state = {
-      installedAt: new Date().toISOString(), linkPath, binDir,
-      previousLinks: (process.env.PREV_LINKS || "").split("\n").filter(Boolean)
-    };
-    fs.writeFileSync(file, JSON.stringify(state, null, 2) + "\n");
-  }
-' "$ROOT/.local/installation-state.json" "$LINK" "$BIN_DIR"
-
 echo "Installed the adapter as $LINK."
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) echo "Note: $BIN_DIR is not on this shell's PATH. Raft's POSIX discovery also checks ~/.local/bin directly, but prefer adding $BIN_DIR to PATH." >&2 ;;
 esac
-echo "Run: npm run models:refresh   (discovers model thinking options from your Devin CLI)"
+echo "Run: npm run models:refresh   (discovers model thinking options from the configured backend)"
 echo "Then use Raft's Rescan Runtimes / model refresh so Grok Build picks up this slot."

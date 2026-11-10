@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Read native thinking options for each model from the installed Devin CLI
+# Read native thinking options for each model from the configured backend CLI
 # and write the local catalog used at launch. No inference prompt is sent.
 set -euo pipefail
 
