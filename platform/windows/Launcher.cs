@@ -60,7 +60,7 @@ class Launcher {
       child.WaitForExit(); Task.WaitAll(output,error); return child.ExitCode;
     } catch(Exception e) {
       if(child!=null) { try { if(!child.HasExited) child.Kill(); } catch {} }
-      Console.Error.WriteLine("Raft Devin adapter launcher: "+e.Message); return 1;
+      Console.Error.WriteLine("Raft agent adapter launcher: "+e.Message); return 1;
     }
     finally { if(job!=IntPtr.Zero) CloseHandle(job); if(child!=null) child.Dispose(); }
   }

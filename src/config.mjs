@@ -7,13 +7,22 @@ export const projectRoot = path.dirname(path.dirname(fileURLToPath(import.meta.u
 export const version = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')).version;
 export const launcherPath = path.join(projectRoot, 'bin', process.platform === 'win32' ? 'grok.exe' : 'grok');
 
-export function loadConfig() {
-  const configPath = process.env.DEVIN_ADAPTER_CONFIG || path.join(projectRoot, 'adapter.config.json');
-  let local = {};
-  try { local = JSON.parse(fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, '')); }
-  catch (e) { if (e.code !== 'ENOENT') throw new Error('Cannot read adapter configuration; check its JSON syntax.'); }
-  const explicit = process.env.DEVIN_EXE || local.devinExe;
-  if (explicit && (!fs.existsSync(explicit) || !fs.statSync(explicit).isFile())) throw new Error('The configured Devin executable does not exist.');
+function existingFile(candidate) {
+  try { return candidate && fs.existsSync(candidate) && fs.statSync(candidate).isFile(); }
+  catch { return false; }
+}
+
+function onPath(name) {
+  for (const entry of (process.env.PATH || '').split(path.delimiter)) {
+    if (!entry) continue;
+    const candidate = path.join(entry, name);
+    if (existingFile(candidate)) return candidate;
+  }
+  return null;
+}
+
+function findDevinExe(explicit) {
+  if (explicit && !existingFile(explicit)) throw new Error('The configured Devin executable does not exist.');
   const candidates = explicit ? [explicit] : [];
   if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
     candidates.push(path.join(process.env.LOCALAPPDATA, 'devin', 'cli', 'bin', 'devin.exe'));
@@ -26,23 +35,87 @@ export function loadConfig() {
       path.join(process.env.HOME, '.local', 'share', 'devin', 'cli', '_versions', 'current', 'bin', 'devin')
     );
   }
-  for (const entry of (process.env.PATH || '').split(path.delimiter)) {
-    candidates.push(path.join(entry, process.platform === 'win32' ? 'devin.exe' : 'devin'));
+  if (!explicit) {
+    for (const entry of (process.env.PATH || '').split(path.delimiter)) {
+      candidates.push(path.join(entry, process.platform === 'win32' ? 'devin.exe' : 'devin'));
+    }
   }
-  const devinExe = candidates.find(candidate => candidate && fs.existsSync(candidate) && fs.statSync(candidate).isFile());
-  if (!devinExe) throw new Error('Devin CLI was not found. Install it first, or set DEVIN_EXE / devinExe to its executable path.');
+  return candidates.find(existingFile) ?? null;
+}
+
+function findDshExe(explicit) {
+  if (explicit && !existingFile(explicit)) throw new Error('The configured DeepSeek Harness executable does not exist.');
+  const candidates = explicit ? [explicit] : [];
+  if (!explicit) {
+    candidates.push(onPath('dsh'));
+    if (process.platform === 'win32') candidates.push(onPath('dsh.exe'));
+    // npm-global installs put a bin shim on PATH, but its script is also
+    // resolvable directly; either form is accepted, .js entry points are
+    // launched through the recorded Node binary.
+    const libEntry = ['node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'];
+    for (const root of [
+      process.env.APPDATA && path.join(process.env.APPDATA, 'npm'),
+      process.env.HOME && path.join(process.env.HOME, '.npm-global'),
+      process.env.HOME && path.join(process.env.HOME, '.local', 'share', 'npm'),
+      '/usr/local', '/usr', '/opt/homebrew',
+    ]) {
+      if (root) candidates.push(path.join(root, ...libEntry));
+    }
+  }
+  return candidates.find(existingFile) ?? null;
+}
+
+export function nodeExecutable() {
+  try {
+    const recorded = fs.readFileSync(path.join(localDir(), 'node-path.txt'), 'utf8').trim();
+    if (existingFile(recorded)) return recorded;
+  } catch { /* build-time file may not exist yet */ }
+  return process.execPath;
+}
+
+export function localDir() {
+  return process.env.RAFT_ADAPTER_LOCAL || path.join(projectRoot, '.local');
+}
+
+export function loadConfig() {
+  const configPath = process.env.RAFT_ADAPTER_CONFIG || process.env.DEVIN_ADAPTER_CONFIG || path.join(projectRoot, 'adapter.config.json');
+  let local = {};
+  try { local = JSON.parse(fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, '')); }
+
+  catch (e) { if (e.code !== 'ENOENT') throw new Error('Cannot read adapter configuration; check its JSON syntax.'); }
+  const requested = process.env.RAFT_ADAPTER_BACKEND || local.backend || 'auto';
+
+  const devinExe = findDevinExe(process.env.DEVIN_EXE || local.devinExe);
+  const dshExe = findDshExe(process.env.DSH_EXE || local.dshExe);
+  let backendId = requested;
+  if (backendId === 'auto') backendId = devinExe ? 'devin' : 'dsh';
+  if (!['devin', 'dsh'].includes(backendId)) throw new Error(`Unknown adapter backend: ${requested} (expected devin or dsh)`);
+  const exe = backendId === 'devin' ? devinExe : dshExe;
+  if (!exe) {
+    throw new Error(backendId === 'devin'
+      ? 'Devin CLI was not found. Install it first, or set DEVIN_EXE / devinExe to its executable path.'
+      : 'DeepSeek Harness was not found. Install @deepseek-ai/dsh first, or set DSH_EXE / dshExe to its executable path.');
+  }
+
   // Explicit local configuration overrides inherited proxy variables only for
-  // the Devin child. Empty configuration preserves its normal environment.
-  const proxyUrl = process.env.DEVIN_ADAPTER_PROXY || local.proxyUrl || '';
+  // the backend child. Empty configuration preserves its normal environment.
+  const proxyUrl = process.env.RAFT_ADAPTER_PROXY || process.env.DEVIN_ADAPTER_PROXY || local.proxyUrl || '';
   if (proxyUrl) {
     let parsed;
     try { parsed = new URL(proxyUrl); } catch { throw new Error('proxyUrl must be a valid proxy URL.'); }
     if (!['http:', 'https:', 'socks5:', 'socks5h:'].includes(parsed.protocol)) throw new Error('Unsupported proxy protocol.');
   }
+
+  const argOverride = backendId === 'devin' ? local.devinArgs : local.dshArgs;
+  const args = Array.isArray(argOverride) && argOverride.every(arg => typeof arg === 'string')
+    ? argOverride : ['acp'];
+  // A resolved .js entry (dsh's npm lib/bin.js) runs under the recorded Node.
+  const viaNode = exe.endsWith('.js');
   return {
-    devinExe: path.resolve(devinExe), proxyUrl,
-    devinArgs: Array.isArray(local.devinArgs) && local.devinArgs.every(arg => typeof arg === 'string') ? local.devinArgs : ['acp'],
-    defaultModel: local.defaultModel || 'swe-2-high',
-    catalogPath: path.join(projectRoot, '.local', 'model-catalog.json')
+    backendId,
+    spawn: viaNode ? { command: nodeExecutable(), args: [path.resolve(exe), ...args] } : { command: path.resolve(exe), args },
+    proxyUrl,
+    defaultModel: local[`${backendId}DefaultModel`] || local.defaultModel || null,
+    catalogPath: path.join(localDir(), 'model-catalog.json')
   };
 }

@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Compatibility / 兼容性说明
-    url: https://github.com/sealpp/raft-devin-adapter/blob/main/docs/compatibility.md
+    url: https://github.com/sealpp/raft-agent-adapter/blob/main/docs/compatibility.md
     about: Check tested versions and known limitations first.

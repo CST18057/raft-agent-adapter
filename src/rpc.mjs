@@ -65,6 +65,6 @@ export class Rpc {
 export const initializeParams = {
   protocolVersion: 1,
   clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-  clientInfo: { name: 'raft-devin-adapter-probe', version },
+  clientInfo: { name: 'raft-agent-adapter-probe', version },
   _meta: { startupHints: { nonInteractive: true, skipGitStatus: true, skipProjectLayout: true }, clientType: 'raft-daemon', clientVersion: '1.0.0' }
 };

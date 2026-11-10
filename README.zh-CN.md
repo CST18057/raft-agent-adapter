@@ -1,35 +1,36 @@
-# raft-devin-adapter
+# raft-agent-adapter
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-[![CI](https://github.com/sealpp/raft-devin-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/sealpp/raft-devin-adapter/actions/workflows/ci.yml)
+[![CI](https://github.com/sealpp/raft-agent-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/sealpp/raft-agent-adapter/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![状态：实验性](https://img.shields.io/badge/status-experimental-yellow.svg)](docs/compatibility.md)
-[![GitHub stars](https://img.shields.io/github/stars/sealpp/raft-devin-adapter?style=social)](https://github.com/sealpp/raft-devin-adapter/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/sealpp/raft-agent-adapter?style=social)](https://github.com/sealpp/raft-agent-adapter/stargazers)
 
-**Raft 的内部 Agent 本来用不了 Devin——这个适配器让它能用。** 装好之后 Devin 就是一个真实运行时：模型列表里出现 `Devin · …` 选项，思考强度按 Devin 自己的档位走，对话中途能插话，会话能续上。Windows 和 Linux 都行，不动 Raft 本身。
+**Raft 的内部 Agent 本来用不了 Devin CLI 和 DeepSeek Harness——这个适配器让它们能用。** 装好之后所选后端就是一个真实运行时：模型列表里出现带前缀的选项（`Devin · …` / `DSH · …`），思考强度按后端自己的档位走，权限请求、流式更新照常转发，会话能续上。Windows 和 Linux 都行，不动 Raft 本身。
 
 ```mermaid
 flowchart LR
     A[Raft 内部 Agent] --> B[Grok Build ACP 入口]
-    B --> C[raft-devin-adapter]
-    C --> D[Devin CLI ACP]
+    B --> C[raft-agent-adapter]
+    C --> D[Devin CLI ACP 或 DeepSeek Harness ACP]
 ```
 
-适配器在两头各说各的协议：对 Raft 它是一个 Grok 运行时，对 Devin 它是一个 ACP 主机。提示、中途消息、权限请求、流式更新和用量都如实转发，已有的 Devin 会话也能直接续上，不会把历史重放进 Raft。不改 Raft 任何文件——安装只是往 PATH 加一个 `grok` 可执行文件。
+适配器在两头各说各的协议：对 Raft 它是一个 Grok 运行时，对后端它是一个 ACP 主机。提示、权限请求、流式更新和用量都如实转发，已有的会话也能直接续上，不会把历史重放进 Raft。不改 Raft 任何文件——安装只是往 PATH 加一个 `grok` 可执行文件。一个适配器实例同时只接一个后端，用 `backend` 配置项选择。
 
-装之前先说清楚：这是实验性社区项目，跟 Raft、Cognition、xAI 没有隶属关系，运行时选择器会一直显示 **Grok Build**——属正常现象。建议先扫一眼[兼容范围与限制](docs/compatibility.md)。
+装之前先说清楚：这是实验性社区项目，跟 Raft、Cognition、DeepSeek、xAI 没有隶属关系，运行时选择器会一直显示 **Grok Build**——属正常现象。建议先扫一眼[兼容范围与限制](docs/compatibility.md)。
 
-好用的话点个 [star](https://github.com/sealpp/raft-devin-adapter)，让更多人能找到它。报 bug 时带上 CLI 版本和复现步骤，最有帮助。
+好用的话点个 [star](https://github.com/sealpp/raft-agent-adapter)，让更多人能找到它。报 bug 时带上 CLI 版本和复现步骤，最有帮助。
 
 ## 已实现能力
 
-- 在 Raft 模型列表中展示带 `Devin · …` 前缀的模型。
-- 根据 Devin 实际返回的选项，选择模型和思考强度。
+- 在 Raft 模型列表中展示带 `Devin · …` / `DSH · …` 前缀的模型。
+- 根据后端实际返回的选项，选择模型和思考强度（Devin 的 `thought_level`，dsh 的 `reasoning_effort`）。
 - 将 Raft 的角色常驻指令作为有标记的指令块，附加到每次启动或恢复后的第一条提示。
-- 使用 Devin 的 mid-turn prompt 能力，接收执行期间到达的消息。
 - 转发权限请求、流式更新和用量数据。
-- 在同一台电脑上使用原有 Devin 会话 ID 恢复会话，并抑制历史回放重复写入 Raft。
+- 在同一台电脑上使用原会话 ID 恢复会话，并抑制历史回放重复写入 Raft。
+- Devin 专用：中途消息通过 Devin 原生 mid-turn prompt 能力送达。
+- dsh 专用：dsh 拒绝同会话第二个在途 prompt，中途消息会入队，在当前轮结束后自动作为下一轮提示补发。
 
 已在 Linux 上完成**真实端到端验证**：真实 Raft 服务器经由 Raft Computer 1.0.67 → 本适配器 → 已登录的 Devin CLI 3000.12.32 驱动 Agent，向其发送 DM 返回了真实模型推理回复。集成最初在 Windows 上使用 Raft Computer 1.0.63 验证。完整证据分级见[验证矩阵](docs/compatibility.md)。
 
@@ -45,8 +46,8 @@ devin setup                                          # 登录（模型列表需�
 然后安装适配器：
 
 ```sh
-git clone https://github.com/sealpp/raft-devin-adapter.git
-cd raft-devin-adapter
+git clone https://github.com/sealpp/raft-agent-adapter.git
+cd raft-agent-adapter
 platform/linux/install.sh
 npm run models:refresh
 platform/linux/test-adapter.sh
@@ -54,7 +55,7 @@ platform/linux/test-adapter.sh
 
 `install.sh` 构建启动器并在 `~/.local/bin` 放一个 `grok` 引导脚本——这正是 Raft 在 POSIX 上 `which grok` 失败后的回退查找目录。`models:refresh` 读取各模型的原生思考选项；`test-adapter.sh` 检查启动器的 ACP 握手和模型发现。以上命令都不会提交模型推理提示。
 
-在 Raft 中添加**内部 Agent**，运行时选择 **Grok Build**，刷新模型列表后选择 `Devin · …` 模型。如果 Computer 的运行时清单里没有 Grok Build，请 Rescan Runtimes 或重启该 Computer，让它重新检查 `~/.local/bin/grok`。界面里的工作区 **Scan** 不会重新扫描已安装的运行时。
+在 Raft 中添加**内部 Agent**，运行时选择 **Grok Build**，刷新模型列表后选择带后端前缀的模型（`Devin · …` 或 `DSH · …`）。如果 Computer 的运行时清单里没有 Grok Build，请 Rescan Runtimes 或重启该 Computer，让它重新检查 `~/.local/bin/grok`。界面里的工作区 **Scan** 不会重新扫描已安装的运行时。
 
 ## Windows 快速开始
 
@@ -63,8 +64,8 @@ platform/linux/test-adapter.sh
 在 PowerShell 中执行：
 
 ```powershell
-git clone https://github.com/sealpp/raft-devin-adapter.git
-cd raft-devin-adapter
+git clone https://github.com/sealpp/raft-agent-adapter.git
+cd raft-agent-adapter
 .\platform\windows\Install.ps1
 .\platform\windows\Refresh-Models.ps1
 .\platform\windows\Test-Adapter.ps1
@@ -75,6 +76,24 @@ cd raft-devin-adapter
 `Refresh-Models.ps1` 会读取各模型的原生思考选项；`Test-Adapter.ps1` 会检查编译后启动器的 ACP 握手和模型发现。两者都会访问本机 Devin CLI，均不会提交模型推理提示。配置检查失败时，先确认官方 Devin 登录和网络正常。
 
 若已存在另一个 `grok.exe`，安装会停止，真实 Grok 安装无法直接共用此入口。迁移**本适配器的旧目录**时，先停止相关 Agent，再执行 `Install.ps1 -ReplaceAdapter`。安装器会核对旧程序的适配器身份，并替换其用户 PATH 条目；原用户 PATH 会备份到被 Git 忽略的本地安装状态中。Linux 下对应命令为 `install.sh --replace-adapter`。
+
+## DeepSeek Harness 后端
+
+DeepSeek Harness（`dsh`）通过 `dsh acp` 提供 ACP（npm 包 `@deepseek-ai/dsh` 自带该 profile）。在 `adapter.config.json` 里设 `"backend": "dsh"` 并刷新模型即可切换；默认执行 `dsh acp`，可用 `dshExe` / `dshArgs` 覆盖。
+
+适配器处理的协议差异：
+
+- dsh 只报告 `sessionCapabilities: { close, list, resume }`，没有 `loadSession`。Raft 的 Grok driver 硬性要求 `loadSession: true`，适配器会注入该能力并把 `session/load` 映射为 `session/resume`；resume 失败（`not resumable`、`cwd does not match`）会翻译成 missing-session 形态，让 Raft 自动开新会话，无需手动重置。
+- dsh 没有 `session/delete`，只有 `session/close`；关闭的会话仍留在 `session/list`，属 dsh 正常行为。
+- 模型选项可能是分组嵌套结构，value 是 `[provider, model]` 的 JSON 字符串；适配器会扁平化为 `dsh:<value>` 形式的 ID。
+- 用于探测模型目录的 primed 会话会被记入适配器本地状态，后续启动通过 `session/list` + `session/resume` 复用，不会因 Raft 反复探测堆积废弃会话。
+- 在途 prompt 期间收到的插话会入队，当前轮结束后自动作为下一条 `session/prompt` 补发。
+
+`dsh acp` 启动的是 Cordis 插件内核，冷启动可能逼近 Raft 约 15 秒的模型探测窗口；适配器对 `initialize` 立即应答，内核延迟到首个会话调用时才拉起，探测不受影响。接入前请先在 `~/.dsh` 配好 provider 与凭据（可用 `dsh web` 或直接编辑 yaml）。
+
+## 切换后端注意事项
+
+Raft 并不知道 `grok` 入口后面是哪家后端——切换 `backend` 后模型列表、会话 ID、思考档位词汇全部改变，而 Raft 无感知。切换后请刷新 Raft 模型列表并重选带前缀的模型；属于另一后端的旧模型 ID 和会话 ID 会被明确拒绝而不是静默错路由。最干净的"重置"方式是让 Raft 走会话恢复失败的回退路径开新会话。
 
 ## 如何选择 SWE-2 Max
 
@@ -106,12 +125,14 @@ platform/linux/install.sh --devin-exe /opt/devin/devin --proxy-url http://127.0.
 
 | 配置项 | 优先级 / 行为 |
 | --- | --- |
+| `backend` | `RAFT_ADAPTER_BACKEND` → 本地 `backend` → `devin` |
 | Devin 程序路径 | `DEVIN_EXE` → 本地 `devinExe` → 标准安装路径 → PATH |
-| 代理 | `DEVIN_ADAPTER_PROXY` → 本地 `proxyUrl` → 继承环境变量 |
-| 配置文件 | `DEVIN_ADAPTER_CONFIG` → 本目录 `adapter.config.json` |
-| `defaultModel` | Devin 未返回当前模型时的展示 ID 兜底；以原生会话配置为准 |
+| dsh 程序路径 | `DSH_EXE` → 本地 `dshExe` → PATH 上的 `dsh`；参数默认 `acp`，可用 `dshArgs` 覆盖 |
+| 代理 | `RAFT_ADAPTER_PROXY` → `DEVIN_ADAPTER_PROXY` → 本地 `proxyUrl` → 继承环境变量 |
+| 配置文件 | `RAFT_ADAPTER_CONFIG` → `DEVIN_ADAPTER_CONFIG` → 本目录 `adapter.config.json` |
+| `defaultModel` | 后端未返回当前模型时的展示 ID 兜底；以原生会话配置为准 |
 
-显式代理只为 **Devin 子进程**设置 `HTTP_PROXY`、`HTTPS_PROXY` 和 `ALL_PROXY`，不会启动代理服务器，也不会修改系统代理，不依赖特定代理软件。代理服务需要提前运行。没有显式配置时，子进程继承 Raft Computer 的环境；仅继承环境变量不能保证流量会遵循系统代理。SOCKS 的实际支持取决于所安装的 Devin CLI。
+显式代理只为**后端子进程**设置 `HTTP_PROXY`、`HTTPS_PROXY` 和 `ALL_PROXY`，不会启动代理服务器，也不会修改系统代理，不依赖特定代理软件。代理服务需要提前运行。没有显式配置时，子进程继承 Raft Computer 的环境；仅继承环境变量不能保证流量会遵循系统代理。SOCKS 的实际支持取决于所安装的 Devin CLI。
 
 这份独立配置保存在 Raft 目录之外，Raft 升级后仍会保留；它与代理软件设置的全局代理相互独立。请勿提交代理凭据或 Devin 账户文件。
 
@@ -129,7 +150,7 @@ platform/linux/uninstall.sh        # Linux
 .\platform\windows\Uninstall.ps1   # Windows
 ```
 
-卸载会从 PATH 移除此目录的入口（Linux 为 `~/.local/bin/grok` 引导脚本，Windows 为用户 PATH 条目），保留源码、Devin 会话和其他 PATH 项。重启 Computer 或重新扫描运行时以继承变化，并停止或重新配置使用此入口的 Agent。此前迁移掉的旧适配器入口不会自动恢复。
+卸载会从 PATH 移除此目录的入口（Linux 为 `~/.local/bin/grok` 引导脚本，Windows 为用户 PATH 条目），保留源码、后端会话和其他 PATH 项。重启 Computer 或重新扫描运行时以继承变化，并停止或重新配置使用此入口的 Agent。此前迁移掉的旧适配器入口不会自动恢复。
 
 ## 开发与验证
 
@@ -150,16 +171,16 @@ platform/linux/test-adapter.sh --live   # 或 Test-Adapter.ps1 -Live
 仓库提供自包含的 Linux 开发与验证环境（Node 22 + Devin CLI，可选 Raft Computer）：
 
 ```sh
-docker build -f docker/Dockerfile -t raft-devin-adapter .   # 构建即验证完整链路
-docker run --rm raft-devin-adapter                          # 重新跑一遍验证套件
-docker run -it raft-devin-adapter bash                      # 交互式 shell
-docker build -f docker/Dockerfile --build-arg INSTALL_RAFT=1 -t raft-devin-adapter .   # 附带 raft-computer
+docker build -f docker/Dockerfile -t raft-agent-adapter .   # 构建即验证完整链路
+docker run --rm raft-agent-adapter                          # 重新跑一遍验证套件
+docker run -it raft-agent-adapter bash                      # 交互式 shell
+docker build -f docker/Dockerfile --build-arg INSTALL_RAFT=1 -t raft-agent-adapter .   # 附带 raft-computer
 ```
 
-构建过程会执行离线协议测试、构建启动器、把 `grok` 装上 PATH，并用与 Raft 相同的 ACP 调用序列跑通整条链路——包括不做推理的真实 `devin acp` 握手。带认证的测试（`DEVIN_API_KEY`）与 Raft Computer 的连接方式见 [docs/docker.md](docs/docker.md)。
+构建过程会执行离线协议测试、构建启动器、把 `grok` 装上 PATH，并用与 Raft 相同的 ACP 调用序列跑通整条链路——包括不做推理的真实后端 ACP 握手。带认证的测试（`DEVIN_API_KEY`）与 Raft Computer 的连接方式见 [docs/docker.md](docs/docker.md)。
 
 参阅[架构](docs/architecture.md)、[贡献说明](CONTRIBUTING.md)、[Docker 环境](docs/docker.md)和[安全反馈](SECURITY.md)。
 
 ## 许可证
 
-[MIT](LICENSE)。Raft、Devin、Grok 名称归各自权利人所有。项目不分发厂商二进制、凭据或复制的 Raft 实现文件；协议兼容不代表厂商背书。
+[MIT](LICENSE)。Raft、Devin、DeepSeek、Grok 名称归各自权利人所有。项目不分发厂商二进制、凭据或复制的 Raft 实现文件；协议兼容不代表厂商背书。

@@ -39,4 +39,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build the Linux dev/verification image without external downloads
-        run: docker build -f docker/Dockerfile --build-arg INSTALL_DEVIN=0 --build-arg INSTALL_RAFT=0 -t raft-devin-adapter .
+        run: docker build -f docker/Dockerfile --build-arg INSTALL_DEVIN=0 --build-arg INSTALL_RAFT=0 -t raft-agent-adapter .

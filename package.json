@@ -1,21 +1,37 @@
 {
-  "name": "raft-devin-adapter",
+  "name": "raft-agent-adapter",
   "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Run Devin CLI as an internal Raft agent through its existing Grok ACP runtime slot.",
+  "description": "Run ACP-speaking agents (Devin CLI, DeepSeek Harness) as an internal Raft agent through its existing Grok ACP runtime slot.",
   "license": "MIT",
   "author": "sealpp",
-  "repository": { "type": "git", "url": "https://github.com/sealpp/raft-devin-adapter.git" },
-  "bugs": "https://github.com/sealpp/raft-devin-adapter/issues",
-  "homepage": "https://github.com/sealpp/raft-devin-adapter#readme",
-  "engines": { "node": ">=22" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sealpp/raft-agent-adapter.git"
+  },
+  "bugs": "https://github.com/sealpp/raft-agent-adapter/issues",
+  "homepage": "https://github.com/sealpp/raft-agent-adapter#readme",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "test": "node --test test/adapter.test.mjs",
-    "check": "node --check src/adapter.mjs && node --check src/config.mjs && node --check src/rpc.mjs && node --check src/model-config.mjs",
+    "test": "node --test test/adapter.test.mjs test/adapter-dsh.test.mjs",
+    "check": "node --check src/adapter.mjs && node --check src/config.mjs && node --check src/rpc.mjs && node --check src/model-config.mjs && node --check src/backends.mjs",
     "smoke": "node scripts/smoke.mjs",
     "models:refresh": "node scripts/refresh-models.mjs",
     "test:live": "node scripts/test-live.mjs"
   },
-  "keywords": ["raft", "devin", "acp", "agent", "adapter", "linux", "windows"]
+  "keywords": [
+    "raft",
+    "devin",
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "acp",
+    "agent",
+    "adapter",
+    "linux",
+    "windows"
+  ]
 }

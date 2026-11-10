@@ -3,6 +3,7 @@ node_modules/
 bin/
 .local/
 coverage/
+refs/
 
 # Machine configuration, credentials and runtime data
 adapter.config.json

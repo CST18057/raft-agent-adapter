@@ -1,6 +1,6 @@
 # Compatibility and validation
 
-Version 0.3.0 is an experimental release adding Linux support. Protocol behavior depends on the installed Raft and Devin versions. Please include all three versions when reporting a regression.
+Version 0.3.0 adds DeepSeek Harness (`backend: "dsh"`) alongside Devin, and renames the project to `raft-agent-adapter`. Protocol behavior depends on the installed Raft and backend versions. Please include all three versions when reporting a regression.
 
 ## Verified scope
 
@@ -10,7 +10,7 @@ Version 0.3.0 is an experimental release adding Linux support. Protocol behavior
 | Linux container, Devin CLI 3000.12.32 (standalone install), Node 22 | `docker build` verification: launcher generation, PATH install at `~/.local/bin/grok`, the daemon's exact launch args (`agent --no-leader --always-approve stdio`), `initialize`/`session/new`/`session/load`/`session/delete` against the **real** `devin acp` binary, plus uninstall/reinstall cycle — all without inference |
 | Linux container, fake ACP peer | Full chain through PATH `grok`: model catalog, `session/set_model` with `reasoningEffort=max`, session resume |
 | Raft Computer 1.0.67 for Linux | Installs via the official script in the same image; wire behavior confirmed by extracting the daemon's embedded Grok driver (discovery, launch args, `_meta` fields, effort vocabulary, `-32000` → not-authenticated mapping) |
-| **Live Linux Raft integration** (real server, Raft Computer 1.0.67, Devin CLI 3000.12.32 standalone, Node 24) | Full chain verified end-to-end in a container: `raft-computer attach` → `Detected runtimes: grok (raft-devin-adapter 0.3.0…)` → `runtime_models:detect` populated the UI model picker → internal agent created on **Grok Build** with `devin:swe-2-flash-medium` → `agent:start` spawned the adapter → a DM to the agent produced a real inference reply (`OK`, `Devin · SWE-2 Flash Medium`) |
+| **Live Linux Raft integration** (real server, Raft Computer 1.0.67, Devin CLI 3000.12.32 standalone, Node 24) | Full chain verified end-to-end in a container: `raft-computer attach` → `Detected runtimes: grok (raft-agent-adapter 0.3.0…)` → `runtime_models:detect` populated the UI model picker → internal agent created on **Grok Build** with `devin:swe-2-flash-medium` → `agent:start` spawned the adapter → a DM to the agent produced a real inference reply (`OK`, `Devin · SWE-2 Flash Medium`) |
 | Node 22/24, Windows and Linux | CI: offline protocol tests; both launchers are built and smoke-tested against the fake peer; the Docker image builds without external downloads |
 | Real inference on Windows | Not exercised in this revision; the Linux chain above covers the same adapter code path |
 | Authenticated model discovery | Verified: after `devin auth login`, `session/new` returned the account's real models through the adapter (free tier: `swe-2-flash-medium`, `swe-1-6-slow`); real `session/prompt` returned `stopReason: end_turn` with usage accounting |
@@ -24,7 +24,10 @@ The offline test peer is independently authored and never invokes a model or too
 - The runtime selector remains **Grok Build**. A real Grok installation cannot directly share the local `grok` slot.
 - **Authentication model.** The standalone Devin CLI uses its local `devin setup` login inside `devin acp`; sign in before relying on the model list. A Devin Desktop-bundled binary instead requires the ACP host to call `authenticate` — the adapter forwards such calls, but Raft's Grok slot never sends them, so prefer the standalone install. Without login, `session/new` works but the model list is empty.
 - Raft's Grok account/usage widget may show **needs attention**. Grok-specific account reporting is not implemented; use the official Devin CLI to check login and account status.
-- Raft's Grok login/update actions are not Devin management commands. Manage Devin through its official CLI.
+- Raft's Grok login/update actions are not backend management commands. Manage Devin through its official CLI; manage dsh providers and keys via `dsh web` or `~/.dsh` files.
+- One backend per adapter installation — the `grok` slot resolves to a single executable. Two Raft agents cannot run different backends through one install concurrently.
+- Switching `backend` after use: refresh Raft's model list and re-select a prefixed model; the other backend's model/session IDs are rejected explicitly. Raft does not detect the swap — the adapter's error messages are the reset signal.
+- dsh specifics: no mid-turn interjections (queued and sent as the next prompt); no `session/delete` (close leaves the session listed); `dsh acp` cold-starts a plugin kernel, which the adapter hides behind an immediate `initialize` response.
 - Standing instructions are forwarded as a marked first-prompt block, not a native system-prompt replacement. They are sent again after a resume.
 - Raft's Grok transcript locator does not find Devin's native transcripts. A handoff may contain identity only; complete transcript export/migration is not provided.
 - Same-machine session loading was tested. Cross-computer transfer is not established by that test.
@@ -37,7 +40,9 @@ The offline test peer is independently authored and never invokes a model or too
 | Symptom | Check |
 | --- | --- |
 | Grok Build missing from inventory | Install the adapter (`platform/linux/install.sh` or `platform\windows\Install.ps1`), confirm `grok --version` runs, verify `~/.local/bin/grok` (POSIX fallback) or the user PATH entry, then rescan runtimes or restart the Computer |
-| `runtime_not_authenticated` in Raft | Devin ACP rejected the launch: run `devin setup` on the standalone CLI install, or use an ACP host that calls `authenticate` |
+| `runtime_not_authenticated` in Raft | Devin ACP rejected the launch: run `devin setup` on the standalone CLI install, or use an ACP host that calls `authenticate`. dsh never requires `authenticate` |
+| Model rejected as "belongs to a different adapter backend" | The stored Raft model ID predates a backend switch — refresh Raft's model list and re-select, or revert `backend` |
+| dsh agent stalls on first launch | `dsh acp` cold start is slow; verify `dsh` works standalone and that `~/.dsh` providers are configured |
 | Old model list or no Max option | Re-run `models:refresh` (`platform/linux/refresh-models.sh`, `platform\windows\Refresh-Models.ps1`), then refresh the model list in Raft; a workspace Scan is unrelated |
 | Configuration / handshake failure | Run `platform/linux/test-adapter.sh` or `platform\windows\Test-Adapter.ps1`; confirm official Devin login, configured executable, connectivity, and the supported CLI version |
 | Invalid reasoning effort | Select one of the native choices; SWE-2 currently offers Medium, High, Max |

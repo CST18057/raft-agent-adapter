@@ -7,10 +7,10 @@ import { statSync } from 'node:fs';
 const raftEfforts = new Set(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 export const option = (session, id) => session.configOptions?.find(o => o.id === id);
 
-export function thinkingInfo(session) {
-  const thinking = option(session, 'thought_level');
+export function thinkingInfo(session, configId = 'thought_level') {
+  const thinking = option(session, configId);
   return {
-    efforts: (thinking?.options ?? []).map(o => o.value),
+    efforts: (thinking?.options ?? []).map(o => o.value).filter(v => typeof v === 'string' && v),
     ...(thinking?.currentValue ? { defaultEffort: thinking.currentValue } : {})
   };
 }

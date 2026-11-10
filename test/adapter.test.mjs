@@ -12,8 +12,8 @@ import { option, reasoningMeta, catalogKey } from '../src/model-config.mjs';
 async function fixture(t, extraEnv = {}) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'raft-devin-test-'));
   const configFile = path.join(temp, 'config.json');
-  fs.writeFileSync(configFile, JSON.stringify({ devinExe: process.execPath, devinArgs: [path.join(projectRoot, 'test/fake-devin.mjs')] }));
-  const env = { ...process.env, DEVIN_EXE: process.execPath, DEVIN_ADAPTER_CONFIG: configFile, MOCK_STATE_FILE: path.join(temp, 'sessions.json'), ...extraEnv };
+  fs.writeFileSync(configFile, JSON.stringify({ backend: 'devin', devinExe: process.execPath, devinArgs: [path.join(projectRoot, 'test/fake-devin.mjs')] }));
+  const env = { ...process.env, DEVIN_EXE: process.execPath, DEVIN_ADAPTER_CONFIG: configFile, RAFT_ADAPTER_LOCAL: temp, MOCK_STATE_FILE: path.join(temp, 'sessions.json'), ...extraEnv };
   const start = () => new Rpc(process.execPath, [path.join(projectRoot, 'src/adapter.mjs'), 'agent', 'stdio'], { cwd: temp, env });
   const clients = [];
   const open = () => { const rpc = start(); clients.push(rpc); return rpc; };
@@ -23,8 +23,10 @@ async function fixture(t, extraEnv = {}) {
 }
 
 test('version and help work before Devin or local configuration is installed', () => {
+  const env = { ...process.env, RAFT_ADAPTER_CONFIG: 'missing.json' };
+  delete env.DEVIN_ADAPTER_CONFIG;
   for (const arg of ['--version', '--help']) {
-    const output = execFileSync(process.execPath, [path.join(projectRoot, 'src/adapter.mjs'), arg], { encoding: 'utf8', env: { ...process.env, DEVIN_ADAPTER_CONFIG: 'missing.json' } });
+    const output = execFileSync(process.execPath, [path.join(projectRoot, 'src/adapter.mjs'), arg], { encoding: 'utf8', env });
     assert.match(output, /adapter/i);
   }
 });
@@ -49,7 +51,7 @@ test('handshake exposes SWE-2 thinking and selection returns the applied Max con
   assert.equal(option(await select(swe.modelId), 'thought_level').currentValue, 'high');
   assert.equal(option(await select('devin:gpt-lite-none'), 'thought_level').currentValue, 'none');
   assert.equal(option(await select('devin:gpt-lite-none', 'xhigh'), 'thought_level').currentValue, 'xhigh');
-  await assert.rejects(select('grok-model', 'high'), /Select a Devin model/);
+  await assert.rejects(select('grok-model', 'high'), /different adapter backend.*current: Devin/);
   await assert.rejects(rpc.request('unsupported/extension', {}), /Unsupported Raft\/Grok extension/);
   await rpc.request('session/delete', { sessionId: session.sessionId });
   await assert.rejects(rpc.request('session/prompt', { sessionId: session.sessionId, prompt: [] }), /Session not opened/);

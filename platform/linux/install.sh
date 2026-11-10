@@ -30,7 +30,7 @@ done
 
 is_adapter() {
   [ -x "$1" ] || return 1
-  timeout 10 "$1" --version 2>/dev/null | head -n 1 | grep -q '^raft-devin-adapter '
+  timeout 10 "$1" --version 2>/dev/null | head -n 1 | grep -q '^raft-agent-adapter '
 }
 
 # Check every PATH entry plus the link target, mirroring the Windows
@@ -57,7 +57,7 @@ for dir in "${scan_dirs[@]:-}"; do
     exit 1
   fi
   if ! is_adapter "$candidate"; then
-    echo "Refusing to replace $candidate: it does not identify as raft-devin-adapter." >&2
+    echo "Refusing to replace $candidate: it does not identify as raft-agent-adapter." >&2
     exit 1
   fi
   previous+=("$candidate")
@@ -86,7 +86,7 @@ done
 
 cat > "$LINK" <<EOF
 #!/bin/sh
-# Installed by raft-devin-adapter - points at $ROOT
+# Installed by raft-agent-adapter - points at $ROOT
 exec "$TARGET" "\$@"
 EOF
 chmod +x "$LINK"

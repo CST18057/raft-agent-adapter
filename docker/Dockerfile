@@ -1,10 +1,10 @@
-# Development and verification image for raft-devin-adapter on Linux.
+# Development and verification image for raft-agent-adapter on Linux.
 #
-#   docker build -f docker/Dockerfile -t raft-devin-adapter .
-#   docker build -f docker/Dockerfile --build-arg INSTALL_RAFT=1 -t raft-devin-adapter .
-#   docker run --rm raft-devin-adapter                      # re-run the verification suite
-#   docker run --rm -e DEVIN_API_KEY=apk_... raft-devin-adapter   # authenticate first
-#   docker run -it raft-devin-adapter bash                  # interactive shell
+#   docker build -f docker/Dockerfile -t raft-agent-adapter .
+#   docker build -f docker/Dockerfile --build-arg INSTALL_RAFT=1 -t raft-agent-adapter .
+#   docker run --rm raft-agent-adapter                      # re-run the verification suite
+#   docker run --rm -e DEVIN_API_KEY=apk_... raft-agent-adapter   # authenticate first
+#   docker run -it raft-agent-adapter bash                  # interactive shell
 #
 # The build itself runs docker/verify.sh, so a successful build already proves
 # the offline protocol tests, the generated launcher, PATH installation, and
@@ -38,7 +38,7 @@ RUN if [ "$INSTALL_RAFT" = "1" ]; then \
     fi
 
 ENV PATH=/root/.local/bin:$PATH
-WORKDIR /opt/raft-devin-adapter
+WORKDIR /opt/raft-agent-adapter
 
 COPY package.json adapter.config.example.json ./
 COPY src ./src

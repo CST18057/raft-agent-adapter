@@ -3,7 +3,7 @@
 A self-contained Linux image for developing and verifying the adapter. Building the image already runs the whole verification suite, so a green `docker build` is itself the proof.
 
 ```sh
-docker build -f docker/Dockerfile -t raft-devin-adapter .
+docker build -f docker/Dockerfile -t raft-agent-adapter .
 ```
 
 ## What the image contains
@@ -11,7 +11,7 @@ docker build -f docker/Dockerfile -t raft-devin-adapter .
 - **Node.js 22** on Debian bookworm-slim, with git and curl.
 - **Devin CLI** installed through the official `cli.devin.ai` installer at `~/.local/bin/devin` (`INSTALL_DEVIN=0` skips it).
 - **Raft Computer** optionally (`--build-arg INSTALL_RAFT=1`) at `~/.local/bin/raft-computer` — connecting it to a server requires the interactive `raft-computer setup /<serverSlug>` device-approval flow.
-- This checkout copied to `/opt/raft-devin-adapter`.
+- This checkout copied to `/opt/raft-agent-adapter`.
 
 ## Verification suite
 
@@ -26,8 +26,8 @@ docker build -f docker/Dockerfile -t raft-devin-adapter .
 7. If Devin CLI is installed: the same probe against the real `devin acp` binary (no inference; unauthenticated sessions have an empty model list).
 
 ```sh
-docker run --rm raft-devin-adapter           # re-run the suite
-docker run -it raft-devin-adapter bash       # interactive shell in the env
+docker run --rm raft-agent-adapter           # re-run the suite
+docker run -it raft-agent-adapter bash       # interactive shell in the env
 ```
 
 ## Authenticated testing
@@ -35,13 +35,13 @@ docker run -it raft-devin-adapter bash       # interactive shell in the env
 Export a Devin API key to have the probe call `authenticate` before opening a session — mirroring what an auth-aware ACP host does:
 
 ```sh
-docker run --rm -e DEVIN_API_KEY=apk_... raft-devin-adapter
+docker run --rm -e DEVIN_API_KEY=apk_... raft-agent-adapter
 ```
 
 Or open a shell and log in the normal way (uses local credentials in `devin acp`):
 
 ```sh
-docker run -it raft-devin-adapter bash
+docker run -it raft-agent-adapter bash
 devin setup                     # device/browser login
 npm run models:refresh          # real model + thinking catalog
 platform/linux/test-adapter.sh --live
@@ -52,8 +52,8 @@ Normal agent work consumes your Devin account credits; the checks above only per
 ## Raft Computer inside the container
 
 ```sh
-docker build -f docker/Dockerfile --build-arg INSTALL_RAFT=1 -t raft-devin-adapter .
-docker run -it raft-devin-adapter bash
+docker build -f docker/Dockerfile --build-arg INSTALL_RAFT=1 -t raft-agent-adapter .
+docker run -it raft-agent-adapter bash
 raft-computer setup /<your-server-slug>   # browser/device approval, interactive
 raft-computer start /<your-server-slug>
 raft-computer status                      # service + attachment state

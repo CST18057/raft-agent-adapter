@@ -1,28 +1,28 @@
 # Architecture
 
-This repository is a local compatibility layer between two ACP dialects. It uses Raft's existing Grok Build process-launch integration while running Devin as the actual agent.
+This repository is a local compatibility layer between two ACP dialects. It uses Raft's existing Grok Build process-launch integration while running an ACP-speaking backend — Devin CLI or DeepSeek Harness (`dsh`) — as the actual agent.
 
 ```mermaid
 sequenceDiagram
     participant R as Raft Computer
     participant L as bin/grok(.exe)
     participant A as Node adapter
-    participant D as devin acp
+    participant D as backend ACP (devin/dsh)
     R->>L: agent --no-leader --always-approve stdio
     L->>A: exec node adapter.mjs with byte-preserving stdio
     A->>D: initialize + temporary session/new
     D-->>A: Capabilities + native model options
     A-->>R: Grok-compatible model metadata (_meta.modelState)
     R->>A: session/new or session/load
-    A->>D: Open or resume session
+    A->>D: Open / load / resume session
     R->>A: session/set_model + reasoningEffort
-    A->>D: Set model, then thought_level
+    A->>D: Set model, then native thinking option
     D-->>A: Applied configuration
     A-->>R: Confirmed configuration
     R->>A: session/prompt
     A->>D: Prompt + initial host instructions
     R->>A: _x.ai/interject
-    A->>D: Mid-turn session/prompt
+    A->>D: Mid-turn prompt (Devin) or queued next prompt (dsh)
     D-->>R: Streamed updates via adapter
 ```
 
@@ -47,7 +47,7 @@ The launcher resolves the checkout relative to itself. Both platforms record the
 ### Process lifetime
 
 - **Windows**: the compiled C# launcher spawns Node and binds it to a Windows job object so the whole tree dies with the launcher.
-- **Linux**: `bin/grok` ends with `exec node src/adapter.mjs "$@"`, so the launcher *is* the adapter process. This is load-bearing, not cosmetic: Raft's POSIX driver creates runtime children in their own process group and signals the launcher PID on shutdown and during model-detection probes. A wrapper script that spawned Node as a child would leave Node and Devin orphaned. When the adapter process dies, the Devin child's stdin hits EOF and it exits.
+- **Linux**: `bin/grok` ends with `exec node src/adapter.mjs "$@"`, so the launcher *is* the adapter process. This is load-bearing, not cosmetic: Raft's POSIX driver creates runtime children in their own process group and signals the launcher PID on shutdown and during model-detection probes. A wrapper script that spawned Node as a child would leave Node and Devin orphaned. When the adapter process dies, the backend child's stdin hits EOF and it exits.
 
 ### PATH installation
 
@@ -69,9 +69,9 @@ Extracted from the shipped `raft-computer` daemon's Grok driver (`packages/daemo
 
 ## Model and thinking translation
 
-Raft receives model IDs prefixed with `devin:`. A selection such as `devin:swe-2-high` maps to Devin's `model=swe-2-high`. The separate Raft `_meta.reasoningEffort` field maps to native `thought_level`. The adapter reads back the applied thinking value and rejects unsupported strengths.
+Raft receives model IDs prefixed with the backend marker — `devin:` for Devin, `dsh:` for DeepSeek Harness. A selection such as `devin:swe-2-high` maps to Devin's `model=swe-2-high`; dsh model values are `[provider, model]` JSON strings used verbatim. The separate Raft `_meta.reasoningEffort` field maps to the backend's native thinking option: `thought_level` on Devin, `reasoning_effort` on dsh. The adapter reads back the applied thinking value and rejects unsupported strengths. Model IDs carrying another backend's prefix are rejected with a clear refresh/reselect message instead of being misrouted.
 
-The initialization result adds `_meta.modelState.availableModels`, including per-model `_meta.reasoningEfforts` and an available default. An ignored catalog stores native choices for models other than the currently active model. Its fingerprint includes the Devin executable size/mtime and native model choices; it is a cache key, not an integrity signature. Refresh it after CLI updates.
+The initialization result adds `_meta.modelState.availableModels`, including per-model `_meta.reasoningEfforts` and an available default. An ignored catalog stores native choices for models other than the currently active model. Its fingerprint includes the backend executable size/mtime and native model choices; it is a cache key, not an integrity signature. Refresh it after CLI updates. dsh model options may arrive as grouped nested option lists; the adapter flattens them.
 
 Native `none` is excluded from Raft's explicit strength vocabulary (`low medium high xhigh max ultra` — matching Raft's own `KNOWN_REASONING_EFFORTS`). A model whose preset is `none` still uses that preset when Raft selects Default. The adapter does not rewrite native model suffixes or invent model IDs for thinking levels.
 
@@ -88,11 +88,13 @@ The adapter forwards a host `authenticate` call to Devin verbatim and drops the 
 
 Raft's `systemPromptOverride` is removed from the native session-open call and saved in process memory. It is prepended to the first prompt after each open/resume as a marked host-instruction block. This is prompt-level forwarding; it does not replace Devin's native system prompt or guarantee instruction priority.
 
-Grok's `_x.ai/interject` becomes a native `session/prompt` sent during the active turn. The adapter acknowledges acceptance after that call completes and keeps the primary turn open until tracked injections settle. This uses Devin's advertised mid-turn capability, rather than a polling loop.
+Grok's `_x.ai/interject` handling is per-backend. Devin advertises `cognition.ai/midTurnPrompts`: the interjection becomes a native `session/prompt` during the active turn, acknowledged after that call completes while the primary turn stays open. dsh rejects a second in-flight prompt, so interjections received while a turn is busy are queued and sent automatically as the next `session/prompt` after the turn completes — deferred delivery instead of mid-turn steering.
 
-The same native session ID is returned to Raft. During `session/load`, replay notifications are suppressed to avoid duplicated history in the host. No transcript database is copied or translated. `session/cancel` notifications are forwarded, as are native host requests such as permission prompts. Unsupported host extension requests return an explicit method error.
+The same native session ID is returned to Raft. During `session/load`, replay notifications are suppressed to avoid duplicated history in the host. On dsh, `session/load` maps to `session/resume`; resume failures (`not resumable`, `cwd does not match`, `already active`) are translated into the `session not found` shape so Raft's `resume_or_fresh` recovery opens a fresh session automatically. dsh has no `session/delete` — it maps to `session/close`, and closed sessions legitimately remain in `session/list`. No transcript database is copied or translated. `session/cancel` notifications are forwarded, as are native host requests such as permission prompts. Unsupported host extension requests return an explicit method error.
 
-Initialization requires both native session loading and `cognition.ai/midTurnPrompts`. A missing capability fails the handshake rather than silently weakening message delivery.
+Capability requirements are per-backend. Devin must advertise session loading plus `cognition.ai/midTurnPrompts`; dsh instead reports `sessionCapabilities: { close, list, resume }` and no `loadSession`, which the adapter injects because resume satisfies the same contract. A missing required capability fails the handshake rather than silently weakening message delivery.
+
+Because dsh sessions cannot be deleted, the primed catalog session created during `initialize` is persisted in adapter-local state (`backend-state.json`, keyed by backend + executable) and reused across processes via `session/list` + `session/resume`. `RAFT_ADAPTER_LOCAL` redirects the local-state directory for isolation.
 
 ## Local state
 
@@ -102,6 +104,7 @@ Initialization requires both native session loading and `cognition.ai/midTurnPro
 | `.local/` | Node path, catalog, install state (PATH backup / link path) |
 | `adapter.config.json` | Optional local executable and proxy configuration |
 | `~/.local/bin/grok` | Linux PATH trampoline created by `install.sh` |
-| Official Devin storage | Authentication and native sessions, managed by Devin |
+| `backend-state.json` in `.local/` | Primed catalog session reuse (per backend + executable) |
+| Official backend storage | Authentication and native sessions, managed by Devin/dsh (`~/.dsh`) |
 
-All generated and machine-specific adapter files are ignored by Git. The public repository has no runtime npm dependencies and does not contain Raft, Devin, or Grok source or binaries. Advanced tests may override the native process arguments with a local `devinArgs` string array; normal usage keeps the default `['acp']`.
+All generated and machine-specific adapter files are ignored by Git. The public repository has no runtime npm dependencies and does not contain Raft, Devin, DeepSeek, or Grok source or binaries. Advanced tests may override the native process arguments with local `devinArgs` / `dshArgs` string arrays; normal usage keeps the defaults (`['acp']`).

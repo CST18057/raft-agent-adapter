@@ -19,7 +19,9 @@ try {
   const init = await rpc.request('initialize', initializeParams);
   assert.equal(init.protocolVersion, 1);
   assert.equal(init.agentCapabilities?.loadSession, true);
-  assert.equal(init.agentCapabilities?._meta?.['cognition.ai/midTurnPrompts'], true);
+  const backend = init._meta?.['raft-agent-adapter']?.backend;
+  const thinkingId = backend === 'dsh' ? 'reasoning_effort' : 'thought_level';
+  if (backend !== 'dsh') assert.equal(init.agentCapabilities?._meta?.['cognition.ai/midTurnPrompts'], true);
   const models = init._meta?.modelState?.availableModels ?? [];
   if (expectModels) assert.ok(models.length > 0, 'expected a non-empty model list');
   report.models = models.length;
@@ -42,7 +44,7 @@ try {
       ...(effort ? { _meta: { reasoningEffort: effort } } : {})
     });
     report.model = option(selected, 'model')?.currentValue;
-    report.thoughtLevel = option(selected, 'thought_level')?.currentValue;
+    report.thoughtLevel = option(selected, thinkingId)?.currentValue;
   }
 
   const loaded = await rpc.request('session/load', { sessionId, cwd: process.cwd(), mcpServers: [] });

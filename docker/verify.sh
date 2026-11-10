@@ -19,9 +19,14 @@ npm test
 
 step "Launcher end-to-end against the deterministic fake ACP peer"
 node scripts/fake-peer-config.mjs /tmp/raft-adapter-fake.json
-export DEVIN_ADAPTER_CONFIG=/tmp/raft-adapter-fake.json
+export RAFT_ADAPTER_CONFIG=/tmp/raft-adapter-fake.json
 export MOCK_STATE_FILE=/tmp/raft-adapter-fake-sessions.json
 node scripts/smoke.mjs --launcher
+
+step "Same chain against the fake DeepSeek Harness peer"
+node scripts/fake-peer-config.mjs /tmp/raft-adapter-fake-dsh.json --backend dsh
+RAFT_ADAPTER_CONFIG=/tmp/raft-adapter-fake-dsh.json MOCK_STATE_FILE=/tmp/raft-adapter-fake-dsh-sessions.json node scripts/smoke.mjs --launcher
+RAFT_ADAPTER_CONFIG=/tmp/raft-adapter-fake-dsh.json MOCK_STATE_FILE=/tmp/raft-adapter-fake-dsh-sessions.json RAFT_ADAPTER_LOCAL=/tmp/raft-adapter-fake-dsh-local node docker/probe.mjs
 
 step "Install grok onto PATH and verify discovery"
 platform/linux/install.sh >/dev/null
