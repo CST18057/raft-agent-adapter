@@ -7,4 +7,5 @@ adapter.config.json
 coverage
 reference
 test-workspace
+me_raft-agent-adapter
 *.log

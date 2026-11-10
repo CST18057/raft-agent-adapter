@@ -24,6 +24,7 @@ model-catalog.json
 # Local experiments, sessions and diagnostic output
 reference/
 test-workspace/
+me_raft-agent-adapter/
 *-result.json
 *-validation.json
 *.log
