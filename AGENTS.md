@@ -26,8 +26,6 @@ Read-only diagnostics cover the Devin ACP session surface:
 - Model and configuration probes: model lists, thinking levels, and speed options for each model.
 - Catalog consistency: comparing the local model catalog with live ACP responses.
 - Mapping checks: confirming that a reasoning or speed choice applies and reads back on a session.
-- Environment checks: finding which inherited environment variable changes CLI authentication.
-- Compatibility checks: comparing the adapter's output with the Raft runtime contract.
 
 They open sessions and change session configuration only. They never send prompts.
 
