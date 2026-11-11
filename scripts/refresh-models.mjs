@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Rpc, initializeParams } from '../src/rpc.mjs';
 import { option, thinkingInfo, catalogKey } from '../src/model-config.mjs';
-import { loadConfig } from '../src/config.mjs';
-import { backends } from '../src/backends.mjs';
+import { loadConfig, localDir } from '../src/config.mjs';
+import { backends, initializeCacheKey, writeInitializeCache } from '../src/backends.mjs';
 
 const config = loadConfig();
 const backend = backends[config.backendId];
@@ -13,7 +13,7 @@ if (config.proxyUrl) for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY'
 const rpc = new Rpc(config.spawn.command, config.spawn.args, { env });
 let sessionId;
 try {
-  await rpc.request('initialize', initializeParams);
+  const initialized = await rpc.request('initialize', initializeParams);
   const opened = await rpc.request('session/new', { cwd: process.cwd(), mcpServers: [] });
   sessionId = opened.sessionId;
   const models = backend.modelEntries(opened, option);
@@ -23,6 +23,11 @@ try {
     if (option(selected, 'model')?.currentValue !== model.value) throw new Error(`${backend.displayName} did not confirm the selected model.`);
     catalog.models[model.value] = thinkingInfo(selected, backend.thinkingConfigId);
     if ((i + 1) % 20 === 0) console.log(`Read thinking options for ${i + 1}/${models.length} models`);
+  }
+  try {
+    writeInitializeCache(localDir(), backend.id, initializeCacheKey(config), { initialize: initialized, configOptions: opened.configOptions });
+  } catch (error) {
+    console.error(`[raft-agent-adapter] Cannot cache initialize state: ${error.message}`);
   }
   fs.mkdirSync(path.dirname(config.catalogPath), { recursive: true });
   fs.writeFileSync(config.catalogPath + '.tmp', JSON.stringify(catalog, null, 2));

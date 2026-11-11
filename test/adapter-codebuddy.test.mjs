@@ -4,6 +4,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { createInterface } from 'node:readline';
 import { Rpc, initializeParams } from '../src/rpc.mjs';
 import { projectRoot } from '../src/config.mjs';
 import { option } from '../src/model-config.mjs';
@@ -45,14 +48,78 @@ test('set_model applies the model and thought_level and rejects unsupported stre
   await assert.rejects(select('devin:swe-2-high', 'high'), /different adapter backend.*current: CodeBuddy/);
 });
 
-test('primed catalog session is resumed across processes instead of recreated', async t => {
-  const { rpc, open, calls } = await fixture(t);
+test('a cached handshake resumes the primed session instead of starting CodeBuddy again', async t => {
+  const { rpc, open, calls, temp } = await fixture(t);
   await rpc.request('initialize', initializeParams);
   await rpc.close();
   const second = open();
   await second.request('initialize', initializeParams);
+  // The second handshake is answered from initialize-cache.json; no backend.
+  assert.equal(calls().filter(c => c.method === 'initialize').length, 1);
+  await second.request('session/new', { cwd: temp, mcpServers: [] });
   assert.equal(calls().filter(c => c.method === 'session/new').length, 1);
   assert.equal(calls().filter(c => c.method === 'session/resume').length, 1);
+});
+
+test('a large cached handshake still reaches a host that closed stdin', async t => {
+  const { rpc, temp } = await fixture(t);
+  await rpc.request('initialize', initializeParams);
+  await rpc.close();
+  // Inflate the cached model surface past the pipe buffer so the reply cannot
+  // flush synchronously; the EOF shutdown path must drain it before exiting.
+  const cacheFile = path.join(temp, 'initialize-cache.json');
+  const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+  cache.codebuddy.configOptions = [{
+    id: 'model', type: 'select', name: 'Model', category: 'model', currentValue: 'm0',
+    options: Array.from({ length: 3000 }, (_, i) => ({ value: `m${i}`, name: `Model ${i}` }))
+  }];
+  fs.writeFileSync(cacheFile, JSON.stringify(cache));
+
+  const configFile = path.join(temp, 'config.json');
+  const env = { ...process.env, RAFT_ADAPTER_CONFIG: configFile, RAFT_ADAPTER_LOCAL: temp, MOCK_STATE_FILE: path.join(temp, 'sessions.json') };
+  const child = spawn(process.execPath, [path.join(projectRoot, 'src/adapter.mjs'), 'agent', 'stdio'], { cwd: temp, env, stdio: ['pipe', 'pipe', 'pipe'] });
+  t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
+  let out = '';
+  child.stdout.on('data', d => { out += d; });
+  const exited = once(child, 'exit');
+  const stdoutClosed = once(child.stdout, 'close');
+  child.stdin.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: initializeParams }) + '\n');
+  const [[exitCode]] = await Promise.all([exited, stdoutClosed]);
+  assert.equal(exitCode, 0);
+  const line = out.split('\n').find(l => l.includes('"id":1'));
+  assert.ok(line, `expected an initialize response, got: ${out.slice(0, 200)}`);
+  const message = JSON.parse(line);
+  assert.equal(message.result._meta.modelState.availableModels.length, 3000);
+});
+
+test('the adapter exits on SIGTERM while the host keeps its stdin open', async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'raft-codebuddy-term-'));
+  const configFile = path.join(temp, 'config.json');
+  fs.writeFileSync(configFile, JSON.stringify({ backend: 'codebuddy', codebuddyExe: process.execPath, codebuddyArgs: [path.join(projectRoot, 'test/fake-codebuddy.mjs'), '--acp'] }));
+  const env = { ...process.env, RAFT_ADAPTER_CONFIG: configFile, RAFT_ADAPTER_LOCAL: temp, MOCK_STATE_FILE: path.join(temp, 'sessions.json') };
+  const child = spawn(process.execPath, [path.join(projectRoot, 'src/adapter.mjs'), 'agent', 'stdio'], { cwd: temp, env, stdio: ['pipe', 'pipe', 'pipe'] });
+  t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); fs.rmSync(temp, { recursive: true, force: true }); });
+
+  await new Promise((resolve, reject) => {
+    const lines = createInterface({ input: child.stdout });
+    lines.on('line', line => {
+      let message;
+      try { message = JSON.parse(line); } catch { return; }
+      if (message.id !== 1) return;
+      lines.close();
+      resolve();
+    });
+    child.once('error', reject);
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: initializeParams }) + '\n');
+  });
+
+  const started = Date.now();
+  child.kill('SIGTERM');
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('adapter did not exit after SIGTERM')), 6000);
+    child.once('exit', () => { clearTimeout(timer); resolve(); });
+  });
+  assert.ok(Date.now() - started < 6000);
 });
 
 test('session/load resumes a session from another process and answers with its id', async t => {

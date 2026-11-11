@@ -2,10 +2,10 @@
 import { createInterface } from 'node:readline';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { Rpc } from './rpc.mjs';
+import { Rpc, initializeParams } from './rpc.mjs';
 import { option, thinkingInfo, catalogKey, reasoningMeta, modelMap, stampCategories } from './model-config.mjs';
 import { loadConfig, version, localDir } from './config.mjs';
-import { backends, readBackendState, writeBackendState } from './backends.mjs';
+import { backends, readBackendState, writeBackendState, initializeCacheKey, readInitializeCache, writeInitializeCache, invalidateInitializeCache } from './backends.mjs';
 
 const args = process.argv.slice(2);
 if (args.includes('--version') || args.includes('-V')) {
@@ -29,27 +29,40 @@ if (config.proxyUrl) {
   for (const key of ['HTTP_PROXY','HTTPS_PROXY','ALL_PROXY']) env[key] = config.proxyUrl;
   env.NO_PROXY = env.NO_PROXY || 'localhost,127.0.0.1,::1,[::1]';
 }
-const rpc = new Rpc(config.spawn.command, config.spawn.args, { cwd: process.cwd(), env });
+let rpc = null;
 let primed = null;
+let liveInitialized = null;
+let backendStart = null;
+let hostInitializeParams = null;
 let loading = false;
 let shuttingDown = false;
 let hostRequestId = 0;
 const hostRequests = new Map();
 const sessions = new Map();
+const pendingResponses = new Set();
 
-rpc.onNotification = message => {
-  if (loading) return;
-  send(message);
-  const update = message.params?.update;
-  const usage = update?.sessionUpdate === 'usage_update' ? backend.usageOf?.(update) : null;
-  if (usage) sessions.get(message.params.sessionId)?.usageByRequest.set(usage.key, usage.usage);
-};
-rpc.onRequest = message => new Promise((resolve, reject) => {
-  const id = `${backend.id}-host-${++hostRequestId}`;
-  const timer = setTimeout(() => { hostRequests.delete(id); reject(new Error(`Raft did not answer the ${backend.displayName} host request`)); }, 120000);
-  hostRequests.set(id, { resolve, reject, timer });
-  send({ ...message, id });
-});
+// Spawn the backend only when a real request needs it. Raft probes this slot
+// with initialize for model detection and account usage; spawning a coding
+// agent for those probes is the CPU/RSS spike this adapter must avoid.
+function backendRpc() {
+  if (rpc) return rpc;
+  rpc = new Rpc(config.spawn.command, config.spawn.args, { cwd: process.cwd(), env });
+  rpc.onNotification = message => {
+    if (loading) return;
+    send(message);
+    const update = message.params?.update;
+    const usage = update?.sessionUpdate === 'usage_update' ? backend.usageOf?.(update) : null;
+    if (usage) sessions.get(message.params.sessionId)?.usageByRequest.set(usage.key, usage.usage);
+  };
+  rpc.onRequest = message => new Promise((resolve, reject) => {
+    const id = `${backend.id}-host-${++hostRequestId}`;
+    const timer = setTimeout(() => { hostRequests.delete(id); reject(new Error(`Raft did not answer the ${backend.displayName} host request`)); }, 120000);
+    hostRequests.set(id, { resolve, reject, timer });
+    send({ ...message, id });
+  });
+  rpc.child.on('exit', () => { if (!shuttingDown) void shutdown(1, { release: false }); });
+  return rpc;
+}
 
 function state(sessionId) {
   const value = sessions.get(sessionId);
@@ -79,6 +92,51 @@ function loadCatalog(models) {
     console.error('[raft-agent-adapter] No verified thinking catalog; run `npm run models:refresh` to discover options for all models.');
   }
   return null;
+}
+
+// Starts the backend on first use. A cache hit answers initialize without a
+// child process; the first real session request initializes the same way.
+function startBackend() {
+  if (!backendStart) {
+    backendStart = backendRpc().request('initialize', hostInitializeParams ?? initializeParams)
+      .then(initialized => {
+        const capabilities = backend.checkInit(initialized);
+        liveInitialized = initialized;
+        return { initialized, capabilities };
+      })
+      .catch(error => { backendStart = null; throw error; });
+  }
+  return backendStart;
+}
+
+function persistInitializeCache(initialized, session) {
+  if (!initialized || !session?.configOptions?.length) return;
+  try {
+    writeInitializeCache(localDir(), backend.id, initializeCacheKey(config), {
+      initialize: initialized,
+      configOptions: session.configOptions
+    });
+  } catch (error) {
+    console.error(`[raft-agent-adapter] Cannot cache ${backend.displayName} initialize state: ${error.message}`);
+  }
+}
+
+function cachedInitializeResponse(entry) {
+  const snapshot = { configOptions: entry.configOptions };
+  if (!option(snapshot, 'model')?.options?.length) throw new Error('cached model options are missing');
+  const capabilities = backend.checkInit(entry.initialize);
+  return {
+    ...entry.initialize,
+    agentCapabilities: capabilities,
+    _meta: { ...(entry.initialize._meta ?? {}), modelState: modelResult(snapshot), 'raft-agent-adapter': { version, backend: backend.id } }
+  };
+}
+
+function canResumePrimed(params) {
+  if (!backend.persistentPrimed || params.mcpServers?.length) return false;
+  if (path.resolve(params.cwd) !== process.cwd()) return false;
+  const stored = readBackendState(localDir(), backend.id);
+  return Boolean(stored && path.resolve(stored.primedCwd ?? '') === process.cwd());
 }
 
 // Raft-facing model surface: backend base ids map to families (swe-2-high →
@@ -121,6 +179,7 @@ function modelResult(session) {
 // Legacy base ids (profiles saved before families) and hand-written combos
 // (devin:swe-2-max → swe-2-high + max) resolve too.
 async function applyModel(sessionId, modelId, effort) {
+  await startBackend();
   const prefixed = modelId?.startsWith(backend.modelPrefix);
   const raw = prefixed ? modelId.slice(backend.modelPrefix.length) : modelId;
   const resolved = surface ? surface.map.resolve(raw) : { base: raw };
@@ -128,13 +187,13 @@ async function applyModel(sessionId, modelId, effort) {
     if (!prefixed) throw new Error(`"${modelId}" belongs to a different adapter backend (current: ${backend.displayName}). Refresh the model list in Raft and select a ${backend.displayName} · model — or switch adapter.config.json's backend back.`);
     throw new Error(`"${modelId}" is not a model this ${backend.displayName} backend offers. Refresh the model list in Raft.`);
   }
-  let result = await rpc.request('session/set_config_option', { sessionId, configId: 'model', value: resolved.base });
+  let result = await backendRpc().request('session/set_config_option', { sessionId, configId: 'model', value: resolved.base });
   const requested = effort ?? resolved.effort;
   if (requested) {
     const thinking = option(result, backend.thinkingConfigId);
     if (!thinking) throw new Error(`${backend.displayName} offers no reasoning effort control for this model (requested: ${requested})`);
     if (!thinking.options?.some(o => o.value === requested)) throw new Error(`${backend.displayName} does not offer requested reasoning effort: ${requested}. Available: ${thinking.options.map(o => o.value).filter(Boolean).join(', ') || 'model default only'}`);
-    result = await rpc.request('session/set_config_option', { sessionId, configId: backend.thinkingConfigId, value: requested });
+    result = await backendRpc().request('session/set_config_option', { sessionId, configId: backend.thinkingConfigId, value: requested });
     if (option(result, backend.thinkingConfigId)?.currentValue !== requested) throw new Error(`${backend.displayName} did not apply requested reasoning effort: ${requested}`);
   }
   observeConfig(result);
@@ -147,7 +206,7 @@ async function releasePrimed() {
   const id = primed.sessionId;
   primed = null;
   for (const method of backend.closeMethods) {
-    try { await rpc.request(method, { sessionId: id }, 10000); return; }
+    try { await backendRpc().request(method, { sessionId: id }, 10000); return; }
     catch { /* try the next close surface */ }
   }
 }
@@ -157,7 +216,7 @@ async function drainDeferred(current, sessionId) {
   // follow-up prompt once the active turn settles, so messages are not lost.
   while (current.deferred.length) {
     const texts = current.deferred.splice(0);
-    const requeued = await rpc.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: texts.join('\n') }] }, 24 * 60 * 60 * 1000)
+    const requeued = await backendRpc().request('session/prompt', { sessionId, prompt: [{ type: 'text', text: texts.join('\n') }] }, 24 * 60 * 60 * 1000)
       .then(() => false, error => {
         if (/already in flight/i.test(error.message)) { current.deferred.unshift(...texts); return true; }
         console.error(`[raft-agent-adapter] Dropped ${texts.length} deferred interjection(s): ${error.message}`);
@@ -182,7 +241,7 @@ async function prompt(params, isMidTurn = false) {
     current.needsInstructions = false;
   }
   current.usageByRequest.clear();
-  const pending = rpc.request('session/prompt', { ...params, prompt: content }, 24 * 60 * 60 * 1000);
+  const pending = backendRpc().request('session/prompt', { ...params, prompt: content }, 24 * 60 * 60 * 1000);
   if (isMidTurn) {
     current.midTurns.add(pending);
     try { return await pending; } finally { current.midTurns.delete(pending); }
@@ -200,7 +259,7 @@ async function prompt(params, isMidTurn = false) {
 async function openPrimed() {
   const stored = backend.persistentPrimed ? readBackendState(localDir(), backend.id) : null;
   const usable = stored && (!backend.knownSessionsOnly || knownSession(stored.primedSessionId)) ? stored : null;
-  const opened = await backend.openPrimed(rpc, process.cwd(), usable);
+  const opened = await backend.openPrimed(backendRpc(), process.cwd(), usable);
   if (backend.knownSessionsOnly) rememberSession(opened.sessionId);
   if (backend.persistentPrimed && opened.sessionId !== stored?.primedSessionId) {
     writeBackendState(localDir(), backend.id, { primedSessionId: opened.sessionId, primedCwd: process.cwd() });
@@ -210,16 +269,31 @@ async function openPrimed() {
 
 async function handle(method, params) {
   if (method === 'initialize') {
-    const initialized = await rpc.request(method, params);
-    const capabilities = backend.checkInit(initialized);
+    hostInitializeParams = params;
+    const cached = readInitializeCache(localDir(), backend.id, initializeCacheKey(config));
+    if (cached) {
+      try {
+        // Raft's model/usage probes stop after initialize; answer them without
+        // starting the backend, which can cost seconds and hundreds of MB.
+        return cachedInitializeResponse(cached);
+      } catch (error) {
+        console.error(`[raft-agent-adapter] Ignoring unusable ${backend.displayName} initialize cache: ${error.message}`);
+      }
+    }
+    const { initialized, capabilities } = await startBackend();
+    if (primed) await releasePrimed();
     primed = await openPrimed();
+    persistInitializeCache(initialized, primed);
     return { ...initialized, agentCapabilities: capabilities, _meta: { ...initialized._meta, modelState: modelResult(primed), 'raft-agent-adapter': { version, backend: backend.id } } };
   }
   if (method === 'authenticate') {
     if (backend.interactiveAuth) throw new Error(`${backend.displayName} sign-in is interactive and would log out the current account; sign in with the codebuddy CLI or set CODEBUDDY_API_KEY instead.`);
-    const result = await rpc.request(method, params, 120000);
-    // Account state changed: drop the unauthenticated primed session so the
-    // next session open discovers the real model options for the account.
+    await startBackend();
+    const result = await backendRpc().request(method, params, 120000);
+    // Account state changed: drop the cached handshake and the
+    // unauthenticated primed session so the next probe or session open
+    // discovers the real model options for the account.
+    invalidateInitializeCache(localDir(), backend.id);
     await releasePrimed();
     return result;
   }
@@ -231,8 +305,16 @@ async function handle(method, params) {
       // to resume. (dsh rejects a resume of an active session.)
       return { sessionId: params.sessionId };
     }
+    await startBackend();
     let opened;
     if (method === 'session/new' && primed && path.resolve(params.cwd) === process.cwd() && !(params.mcpServers?.length)) {
+      opened = primed;
+      primed = null;
+      if (backend.persistentPrimed) writeBackendState(localDir(), backend.id, { primedSessionId: null, primedCwd: process.cwd() });
+    } else if (method === 'session/new' && !primed && canResumePrimed(params)) {
+      // The cached handshake did not open a backend session. Resume the
+      // persisted primed session now instead of leaving it unused.
+      primed = await openPrimed();
       opened = primed;
       primed = null;
       if (backend.persistentPrimed) writeBackendState(localDir(), backend.id, { primedSessionId: null, primedCwd: process.cwd() });
@@ -241,7 +323,7 @@ async function handle(method, params) {
       const nativeMethod = method === 'session/load' ? backend.loadMethod : method;
       const nativeCall = method === 'session/load' ? backend.resumeParams(nativeParams) : nativeParams;
       loading = method === 'session/load' && backend.nativeLoad;
-      try { opened = await rpc.request(nativeMethod, nativeCall, 90000); }
+      try { opened = await backendRpc().request(nativeMethod, nativeCall, 90000); }
       catch (error) {
         if (method === 'session/load' && backend.missingSessionError && !backend.knownSessionsOnly) throw backend.missingSessionError(params.sessionId, error);
         throw error;
@@ -253,12 +335,13 @@ async function handle(method, params) {
     if (backend.knownSessionsOnly) rememberSession(sessionId);
     if (backend.permissionMode) {
       try {
-        await rpc.request('session/set_config_option', { sessionId, configId: 'mode', value: backend.permissionMode });
+        await backendRpc().request('session/set_config_option', { sessionId, configId: 'mode', value: backend.permissionMode });
       } catch (error) {
         console.error(`[raft-agent-adapter] ${backend.displayName} did not accept permission mode ${backend.permissionMode}: ${error.message}`);
       }
     }
     observeConfig(opened);
+    if (method === 'session/new' && liveInitialized) persistInitializeCache(liveInitialized, opened);
     sessions.set(sessionId, { standingPrompt: meta.systemPromptOverride ?? '', needsInstructions: true, midTurns: new Set(), deferred: [], usageByRequest: new Map() });
     return stampCategories({ ...opened, sessionId }, backend.thinkingConfigId);
   }
@@ -268,8 +351,9 @@ async function handle(method, params) {
     // method; the grok driver uses session/set_model instead. Forwarding both
     // keeps the bridge working whichever surface a host chooses.
     if (params.configId === 'model') return applyModel(params.sessionId, params.value, params._meta?.reasoningEffort);
+    await startBackend();
     const configId = ['thought_level', 'reasoning_effort', backend.thinkingConfigId].includes(params.configId) ? backend.thinkingConfigId : params.configId;
-    const result = await rpc.request('session/set_config_option', { sessionId: params.sessionId, configId, value: params.value });
+    const result = await backendRpc().request('session/set_config_option', { sessionId: params.sessionId, configId, value: params.value });
     observeConfig(result);
     return stampCategories(result, backend.thinkingConfigId);
   }
@@ -282,7 +366,7 @@ async function handle(method, params) {
     const candidates = backend.closeMethods.includes(method) ? [method] : backend.closeMethods;
     let last;
     for (const closeMethod of candidates) {
-      try { const result = await rpc.request(closeMethod, params); sessions.delete(params.sessionId); return result; }
+      try { const result = await backendRpc().request(closeMethod, params); sessions.delete(params.sessionId); return result; }
       catch (error) { last = error; }
     }
     throw last;
@@ -313,24 +397,48 @@ lines.on('line', line => {
   }
   if (!message.method) return;
   if (!Object.hasOwn(message, 'id')) {
-    if (message.method === 'session/cancel') rpc.notify(message.method, message.params);
+    if (message.method === 'session/cancel' && rpc) rpc.notify(message.method, message.params);
     return;
   }
-  handle(message.method, message.params ?? {}).then(
+  const task = handle(message.method, message.params ?? {}).then(
     result => send({ jsonrpc: '2.0', id: message.id, result }),
     error => send({ jsonrpc: '2.0', id: message.id, error: { code: error.rpc?.code ?? -32603, message: error.message } })
   );
+  pendingResponses.add(task);
+  task.then(() => pendingResponses.delete(task), () => pendingResponses.delete(task));
 });
 
-async function shutdown() {
+async function shutdown(exitCode = 0, { release = true } = {}) {
   if (shuttingDown) return;
   shuttingDown = true;
   for (const h of hostRequests.values()) { clearTimeout(h.timer); h.reject(new Error('Raft host disconnected')); }
   hostRequests.clear();
-  await releasePrimed();
-  await rpc.close();
+  if (release) {
+    try { await releasePrimed(); } catch { /* backend may already be gone */ }
+  }
+  if (rpc) {
+    try { await rpc.close(); } catch { /* backend may already be gone */ }
+  }
+  lines.close();
+  // A host that half-closes stdin still expects pending replies; give
+  // in-flight responses a bounded window, then flush stdout before exiting.
+  if (pendingResponses.size) {
+    await Promise.race([
+      Promise.allSettled([...pendingResponses]),
+      new Promise(resolve => setTimeout(resolve, 2000))
+    ]);
+  }
+  await Promise.race([
+    new Promise(resolve => {
+      if (process.stdout.destroyed) resolve();
+      else process.stdout.write('', resolve);
+    }),
+    new Promise(resolve => setTimeout(resolve, 2000))
+  ]);
+  // The stdin readline keeps the event loop alive after SIGTERM/EOF; without an
+  // explicit exit the adapter lingers after Raft kills a model-detection probe.
+  process.exit(exitCode);
 }
-lines.on('close', () => void shutdown());
-process.on('SIGINT', () => void shutdown());
-process.on('SIGTERM', () => void shutdown());
-rpc.child.on('exit', () => { if (!shuttingDown) { lines.close(); process.exitCode = 1; } });
+lines.on('close', () => void shutdown(0));
+process.on('SIGINT', () => void shutdown(0));
+process.on('SIGTERM', () => void shutdown(0));

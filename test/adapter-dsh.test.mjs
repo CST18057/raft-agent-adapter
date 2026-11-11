@@ -89,12 +89,15 @@ test('interject during a busy turn is deferred and delivered as the next prompt'
   assert.ok(baseSettled >= 0 && injectedReceived > baseSettled, `expected deferred delivery after settle, got ${JSON.stringify(entries)}`);
 });
 
-test('primed catalog session is resumed across processes instead of recreated', async t => {
-  const { rpc, open, calls } = await fixture(t);
+test('a cached handshake resumes the primed session instead of starting dsh again', async t => {
+  const { rpc, open, calls, temp } = await fixture(t);
   await rpc.request('initialize', initializeParams);
   await rpc.close();
   const second = open();
   await second.request('initialize', initializeParams);
+  // The second handshake is answered from initialize-cache.json; no backend.
+  assert.equal(calls().filter(c => c.method === 'initialize').length, 1);
+  await second.request('session/new', { cwd: temp, mcpServers: [] });
   const news = calls().filter(c => c.method === 'session/new');
   const resumes = calls().filter(c => c.method === 'session/resume');
   assert.equal(news.length, 1, `expected one persistent primed session, got ${JSON.stringify(news)}`);
@@ -109,6 +112,23 @@ test('session/delete maps to the dsh close surface', async t => {
   await rpc.request('session/delete', { sessionId });
   const closeCalls = calls().filter(c => c.method === 'session/close' && c.sessionId === sessionId);
   assert.equal(closeCalls.length, 1);
+});
+
+test('authenticate drops the cached handshake so the next probe re-reads the backend', async t => {
+  const { rpc, open, calls } = await fixture(t);
+  await rpc.request('initialize', initializeParams);
+  await rpc.close();
+  const second = open();
+  await second.request('initialize', initializeParams);
+  // Cache hit: still only the first process's backend initialize.
+  assert.equal(calls().filter(c => c.method === 'initialize').length, 1);
+  await second.request('authenticate', { methodId: 'browser' });
+  // authenticate starts the backend (initialize #2) and invalidates the cache.
+  assert.equal(calls().filter(c => c.method === 'initialize').length, 2);
+  const third = open();
+  await third.request('initialize', initializeParams);
+  // The invalidated entry forces a live handshake (initialize #3).
+  assert.equal(calls().filter(c => c.method === 'initialize').length, 3);
 });
 
 test('a model without reasoning support rejects effort with a clear error', async t => {
