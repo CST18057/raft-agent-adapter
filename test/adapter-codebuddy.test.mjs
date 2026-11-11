@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { createInterface } from 'node:readline';
 import { Rpc, initializeParams } from '../src/rpc.mjs';
 import { projectRoot } from '../src/config.mjs';
@@ -78,13 +79,13 @@ test('a large cached handshake still reaches a host that closed stdin', async t 
   const env = { ...process.env, RAFT_ADAPTER_CONFIG: configFile, RAFT_ADAPTER_LOCAL: temp, MOCK_STATE_FILE: path.join(temp, 'sessions.json') };
   const child = spawn(process.execPath, [path.join(projectRoot, 'src/adapter.mjs'), 'agent', 'stdio'], { cwd: temp, env, stdio: ['pipe', 'pipe', 'pipe'] });
   t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
-  const out = await new Promise((resolve, reject) => {
-    let buffer = '';
-    child.stdout.on('data', d => { buffer += d; });
-    child.once('error', reject);
-    child.once('exit', () => resolve(buffer));
-    child.stdin.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: initializeParams }) + '\n');
-  });
+  let out = '';
+  child.stdout.on('data', d => { out += d; });
+  const exited = once(child, 'exit');
+  const stdoutClosed = once(child.stdout, 'close');
+  child.stdin.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: initializeParams }) + '\n');
+  const [[exitCode]] = await Promise.all([exited, stdoutClosed]);
+  assert.equal(exitCode, 0);
   const line = out.split('\n').find(l => l.includes('"id":1'));
   assert.ok(line, `expected an initialize response, got: ${out.slice(0, 200)}`);
   const message = JSON.parse(line);
