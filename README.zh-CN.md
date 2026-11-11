@@ -89,6 +89,8 @@ Raft 展示的是**家族**模型 ID（`devin:swe-2`），档位由独立的推�
 
 手写组合 ID（`devin:swe-2-max`）和已保存的旧基础 ID（`devin:swe-2-high`）同样能解析到正确配置。后端 CLI 升级后，重跑 `npm run models:refresh` 并刷新 Raft 模型列表。
 
+当 `.local/initialize-cache.json` 与当前后端匹配时，Raft 的模型探测直接由缓存应答，不再启动后端进程。该缓存条目会在每次真实会话打开和 `npm run models:refresh` 时刷新。账号或后端变更后若模型列表疑似过期，删除 `.local/initialize-cache.json` 或重跑 `npm run models:refresh`，再刷新 Raft 模型列表。若机器上后端冷启动超过 Raft 约 15 秒的探测窗口，请在安装和登录后运行一次 `npm run models:refresh` 预热缓存。
+
 ## 配置
 
 全部可选——默认按标准安装路径查找各后端，然后 PATH。将 `adapter.config.example.json` 复制为 `adapter.config.json`（已被 Git 忽略），或给安装脚本传 `--devin-exe` / `--proxy-url`（Windows 为 `-DevinExe` / `-ProxyUrl`）。

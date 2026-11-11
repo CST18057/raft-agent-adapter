@@ -114,6 +114,23 @@ test('session/delete maps to the dsh close surface', async t => {
   assert.equal(closeCalls.length, 1);
 });
 
+test('authenticate drops the cached handshake so the next probe re-reads the backend', async t => {
+  const { rpc, open, calls } = await fixture(t);
+  await rpc.request('initialize', initializeParams);
+  await rpc.close();
+  const second = open();
+  await second.request('initialize', initializeParams);
+  // Cache hit: still only the first process's backend initialize.
+  assert.equal(calls().filter(c => c.method === 'initialize').length, 1);
+  await second.request('authenticate', { methodId: 'browser' });
+  // authenticate starts the backend (initialize #2) and invalidates the cache.
+  assert.equal(calls().filter(c => c.method === 'initialize').length, 2);
+  const third = open();
+  await third.request('initialize', initializeParams);
+  // The invalidated entry forces a live handshake (initialize #3).
+  assert.equal(calls().filter(c => c.method === 'initialize').length, 3);
+});
+
 test('a model without reasoning support rejects effort with a clear error', async t => {
   const { rpc } = await fixture(t, { MOCK_BARE_MODEL: '1' });
   await rpc.request('initialize', initializeParams);

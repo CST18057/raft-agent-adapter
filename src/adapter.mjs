@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Rpc, initializeParams } from './rpc.mjs';
 import { option, thinkingInfo, catalogKey, reasoningMeta, modelMap, stampCategories } from './model-config.mjs';
 import { loadConfig, version, localDir } from './config.mjs';
-import { backends, readBackendState, writeBackendState, initializeCacheKey, readInitializeCache, writeInitializeCache } from './backends.mjs';
+import { backends, readBackendState, writeBackendState, initializeCacheKey, readInitializeCache, writeInitializeCache, invalidateInitializeCache } from './backends.mjs';
 
 const args = process.argv.slice(2);
 if (args.includes('--version') || args.includes('-V')) {
@@ -39,6 +39,7 @@ let shuttingDown = false;
 let hostRequestId = 0;
 const hostRequests = new Map();
 const sessions = new Map();
+const pendingResponses = new Set();
 
 // Spawn the backend only when a real request needs it. Raft probes this slot
 // with initialize for model detection and account usage; spawning a coding
@@ -289,8 +290,10 @@ async function handle(method, params) {
     if (backend.interactiveAuth) throw new Error(`${backend.displayName} sign-in is interactive and would log out the current account; sign in with the codebuddy CLI or set CODEBUDDY_API_KEY instead.`);
     await startBackend();
     const result = await backendRpc().request(method, params, 120000);
-    // Account state changed: drop the unauthenticated primed session so the
-    // next session open discovers the real model options for the account.
+    // Account state changed: drop the cached handshake and the
+    // unauthenticated primed session so the next probe or session open
+    // discovers the real model options for the account.
+    invalidateInitializeCache(localDir(), backend.id);
     await releasePrimed();
     return result;
   }
@@ -397,10 +400,12 @@ lines.on('line', line => {
     if (message.method === 'session/cancel' && rpc) rpc.notify(message.method, message.params);
     return;
   }
-  handle(message.method, message.params ?? {}).then(
+  const task = handle(message.method, message.params ?? {}).then(
     result => send({ jsonrpc: '2.0', id: message.id, result }),
     error => send({ jsonrpc: '2.0', id: message.id, error: { code: error.rpc?.code ?? -32603, message: error.message } })
   );
+  pendingResponses.add(task);
+  task.then(() => pendingResponses.delete(task), () => pendingResponses.delete(task));
 });
 
 async function shutdown(exitCode = 0, { release = true } = {}) {
@@ -415,6 +420,21 @@ async function shutdown(exitCode = 0, { release = true } = {}) {
     try { await rpc.close(); } catch { /* backend may already be gone */ }
   }
   lines.close();
+  // A host that half-closes stdin still expects pending replies; give
+  // in-flight responses a bounded window, then flush stdout before exiting.
+  if (pendingResponses.size) {
+    await Promise.race([
+      Promise.allSettled([...pendingResponses]),
+      new Promise(resolve => setTimeout(resolve, 2000))
+    ]);
+  }
+  await Promise.race([
+    new Promise(resolve => {
+      if (process.stdout.destroyed) resolve();
+      else process.stdout.write('', resolve);
+    }),
+    new Promise(resolve => setTimeout(resolve, 2000))
+  ]);
   // The stdin readline keeps the event loop alive after SIGTERM/EOF; without an
   // explicit exit the adapter lingers after Raft kills a model-detection probe.
   process.exit(exitCode);

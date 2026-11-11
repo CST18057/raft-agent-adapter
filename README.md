@@ -89,6 +89,8 @@ Raft shows **family** model IDs (`devin:swe-2`); the level lives in the separate
 
 Hand-written combos (`devin:swe-2-max`) and saved profiles with a raw base ID (`devin:swe-2-high`) still resolve to the right configuration. After a backend CLI update, rerun `npm run models:refresh` and refresh Raft's model list.
 
+Raft's model probes are answered from `.local/initialize-cache.json` while it matches the installed backend, so detection does not start a backend process. The entry refreshes on every real session open and on `npm run models:refresh`. If the model list looks stale after an account or backend change, delete `.local/initialize-cache.json` or rerun `npm run models:refresh`, then refresh Raft's model list. On machines where the backend's cold start exceeds Raft's ~15 s detection window, run `npm run models:refresh` once after install and sign-in to pre-warm the cache.
+
 ## Configuration
 
 All optional — sensible defaults discover each backend at its standard install path, then PATH. Copy `adapter.config.example.json` to `adapter.config.json` (git-ignored), or pass `--devin-exe` / `--proxy-url` (`-DevinExe` / `-ProxyUrl` on Windows) to the installer.

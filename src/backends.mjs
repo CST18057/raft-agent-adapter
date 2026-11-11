@@ -168,18 +168,25 @@ function initializeCachePath(dir) {
   return path.join(dir, 'initialize-cache.json');
 }
 
+function fileFingerprint(file) {
+  const resolved = fs.realpathSync(file);
+  const stat = fs.statSync(resolved);
+  return { path: resolved, size: stat.size, modified: stat.mtimeMs };
+}
+
 export function initializeCacheKey(config) {
   try {
     // Resolve aliases (PATH symlinks, npm .bin shims) so the same install
-    // shares one cache key; size+mtime still invalidates on an upgrade.
-    const executable = fs.realpathSync(config.executable);
-    const stat = fs.statSync(executable);
+    // shares one cache key; size+mtime still invalidates on an upgrade. The
+    // spawn command is fingerprinted as well: .js backends run under a
+    // separate Node binary whose upgrades must invalidate the entry too.
+    const executable = fileFingerprint(config.executable);
+    const spawnCommand = fileFingerprint(config.spawn?.command ?? config.executable);
     return createHash('sha256').update(JSON.stringify({
       backendId: config.backendId,
       executable,
-      args: config.spawn?.args ?? [],
-      size: stat.size,
-      modified: stat.mtimeMs
+      spawnCommand,
+      args: config.spawn?.args ?? []
     })).digest('hex');
   } catch { return null; }
 }
@@ -208,4 +215,15 @@ export function writeInitializeCache(dir, backendId, key, entry) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file + '.tmp', JSON.stringify(parsed, null, 2));
   fs.renameSync(file + '.tmp', file);
+}
+
+export function invalidateInitializeCache(dir, backendId) {
+  const file = initializeCachePath(dir);
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (parsed?.schema !== 1 || !(backendId in parsed)) return;
+    delete parsed[backendId];
+    fs.writeFileSync(file + '.tmp', JSON.stringify(parsed, null, 2));
+    fs.renameSync(file + '.tmp', file);
+  } catch { /* absent or corrupt cache needs no invalidation */ }
 }

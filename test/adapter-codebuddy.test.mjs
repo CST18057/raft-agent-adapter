@@ -60,6 +60,37 @@ test('a cached handshake resumes the primed session instead of starting CodeBudd
   assert.equal(calls().filter(c => c.method === 'session/resume').length, 1);
 });
 
+test('a large cached handshake still reaches a host that closed stdin', async t => {
+  const { rpc, temp } = await fixture(t);
+  await rpc.request('initialize', initializeParams);
+  await rpc.close();
+  // Inflate the cached model surface past the pipe buffer so the reply cannot
+  // flush synchronously; the EOF shutdown path must drain it before exiting.
+  const cacheFile = path.join(temp, 'initialize-cache.json');
+  const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+  cache.codebuddy.configOptions = [{
+    id: 'model', type: 'select', name: 'Model', category: 'model', currentValue: 'm0',
+    options: Array.from({ length: 3000 }, (_, i) => ({ value: `m${i}`, name: `Model ${i}` }))
+  }];
+  fs.writeFileSync(cacheFile, JSON.stringify(cache));
+
+  const configFile = path.join(temp, 'config.json');
+  const env = { ...process.env, RAFT_ADAPTER_CONFIG: configFile, RAFT_ADAPTER_LOCAL: temp, MOCK_STATE_FILE: path.join(temp, 'sessions.json') };
+  const child = spawn(process.execPath, [path.join(projectRoot, 'src/adapter.mjs'), 'agent', 'stdio'], { cwd: temp, env, stdio: ['pipe', 'pipe', 'pipe'] });
+  t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
+  const out = await new Promise((resolve, reject) => {
+    let buffer = '';
+    child.stdout.on('data', d => { buffer += d; });
+    child.once('error', reject);
+    child.once('exit', () => resolve(buffer));
+    child.stdin.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: initializeParams }) + '\n');
+  });
+  const line = out.split('\n').find(l => l.includes('"id":1'));
+  assert.ok(line, `expected an initialize response, got: ${out.slice(0, 200)}`);
+  const message = JSON.parse(line);
+  assert.equal(message.result._meta.modelState.availableModels.length, 3000);
+});
+
 test('the adapter exits on SIGTERM while the host keeps its stdin open', async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'raft-codebuddy-term-'));
   const configFile = path.join(temp, 'config.json');
