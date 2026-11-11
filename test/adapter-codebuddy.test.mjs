@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { Rpc, initializeParams } from '../src/rpc.mjs';
 import { projectRoot } from '../src/config.mjs';
 import { option } from '../src/model-config.mjs';
@@ -45,14 +47,47 @@ test('set_model applies the model and thought_level and rejects unsupported stre
   await assert.rejects(select('devin:swe-2-high', 'high'), /different adapter backend.*current: CodeBuddy/);
 });
 
-test('primed catalog session is resumed across processes instead of recreated', async t => {
-  const { rpc, open, calls } = await fixture(t);
+test('a cached handshake resumes the primed session instead of starting CodeBuddy again', async t => {
+  const { rpc, open, calls, temp } = await fixture(t);
   await rpc.request('initialize', initializeParams);
   await rpc.close();
   const second = open();
   await second.request('initialize', initializeParams);
+  // The second handshake is answered from initialize-cache.json; no backend.
+  assert.equal(calls().filter(c => c.method === 'initialize').length, 1);
+  await second.request('session/new', { cwd: temp, mcpServers: [] });
   assert.equal(calls().filter(c => c.method === 'session/new').length, 1);
   assert.equal(calls().filter(c => c.method === 'session/resume').length, 1);
+});
+
+test('the adapter exits on SIGTERM while the host keeps its stdin open', async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'raft-codebuddy-term-'));
+  const configFile = path.join(temp, 'config.json');
+  fs.writeFileSync(configFile, JSON.stringify({ backend: 'codebuddy', codebuddyExe: process.execPath, codebuddyArgs: [path.join(projectRoot, 'test/fake-codebuddy.mjs'), '--acp'] }));
+  const env = { ...process.env, RAFT_ADAPTER_CONFIG: configFile, RAFT_ADAPTER_LOCAL: temp, MOCK_STATE_FILE: path.join(temp, 'sessions.json') };
+  const child = spawn(process.execPath, [path.join(projectRoot, 'src/adapter.mjs'), 'agent', 'stdio'], { cwd: temp, env, stdio: ['pipe', 'pipe', 'pipe'] });
+  t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); fs.rmSync(temp, { recursive: true, force: true }); });
+
+  await new Promise((resolve, reject) => {
+    const lines = createInterface({ input: child.stdout });
+    lines.on('line', line => {
+      let message;
+      try { message = JSON.parse(line); } catch { return; }
+      if (message.id !== 1) return;
+      lines.close();
+      resolve();
+    });
+    child.once('error', reject);
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: initializeParams }) + '\n');
+  });
+
+  const started = Date.now();
+  child.kill('SIGTERM');
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('adapter did not exit after SIGTERM')), 6000);
+    child.once('exit', () => { clearTimeout(timer); resolve(); });
+  });
+  assert.ok(Date.now() - started < 6000);
 });
 
 test('session/load resumes a session from another process and answers with its id', async t => {

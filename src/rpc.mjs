@@ -51,14 +51,14 @@ export class Rpc {
   fail(error) { for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(error); } this.pending.clear(); }
   async close() {
     this.fail(new Error('RPC closed'));
-    this.child.stdin.end();
+    try { this.child.stdin.end(); } catch { /* already closed */ }
     if (this.child.exitCode === null) {
       await new Promise(resolve => {
-        const timer = setTimeout(() => { this.child.kill(); resolve(); }, 3000);
+        const timer = setTimeout(() => { try { this.child.kill(); } catch { /* already exited */ } resolve(); }, 3000);
         this.child.once('exit', () => { clearTimeout(timer); resolve(); });
       });
     }
-    this.lines.close();
+    try { this.lines.close(); } catch { /* already closed */ }
   }
 }
 

@@ -2,6 +2,7 @@
 // Per-backend descriptors: the Raft/Grok wire surface stays fixed while each
 // native agent protocol differs in capability bits, session lifecycle and
 // model catalog shape. adapter.mjs consumes only this contract.
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -154,6 +155,56 @@ export function writeBackendState(dir, backendId, entry) {
   let parsed = {};
   try { parsed = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* fresh */ }
   parsed[backendId] = entry;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file + '.tmp', JSON.stringify(parsed, null, 2));
+  fs.renameSync(file + '.tmp', file);
+}
+
+// A successful backend initialize response plus the session config options is
+// enough to answer Raft's model detection without starting the backend again.
+// Raft probes this slot with initialize on startup, on reconnects and on model
+// refreshes; spawning a full coding agent for each probe is the dominant cost.
+function initializeCachePath(dir) {
+  return path.join(dir, 'initialize-cache.json');
+}
+
+export function initializeCacheKey(config) {
+  try {
+    // Resolve aliases (PATH symlinks, npm .bin shims) so the same install
+    // shares one cache key; size+mtime still invalidates on an upgrade.
+    const executable = fs.realpathSync(config.executable);
+    const stat = fs.statSync(executable);
+    return createHash('sha256').update(JSON.stringify({
+      backendId: config.backendId,
+      executable,
+      args: config.spawn?.args ?? [],
+      size: stat.size,
+      modified: stat.mtimeMs
+    })).digest('hex');
+  } catch { return null; }
+}
+
+export function readInitializeCache(dir, backendId, key) {
+  if (!key) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(initializeCachePath(dir), 'utf8'));
+    const entry = parsed?.schema === 1 ? parsed?.[backendId] : null;
+    if (entry?.key !== key) return null;
+    if (!entry.initialize || !Array.isArray(entry.configOptions)) return null;
+    return entry;
+  } catch { /* absent or corrupt cache falls back to a live handshake */ }
+  return null;
+}
+
+export function writeInitializeCache(dir, backendId, key, entry) {
+  if (!key) return;
+  const file = initializeCachePath(dir);
+  let parsed = { schema: 1 };
+  try {
+    const current = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (current?.schema === 1) parsed = current;
+  } catch { /* fresh */ }
+  parsed[backendId] = { ...entry, key, writtenAt: new Date().toISOString() };
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file + '.tmp', JSON.stringify(parsed, null, 2));
   fs.renameSync(file + '.tmp', file);
