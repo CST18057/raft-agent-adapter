@@ -16,11 +16,15 @@ function fixture(t, extraEnv = {}) {
     codebuddyExe: process.execPath,
     codebuddyArgs: [path.join(projectRoot, 'test/fake-codebuddy-http.mjs'), '--acp']
   }));
+  const cliTransport = path.join(temp, 'cli-transport');
+  fs.mkdirSync(cliTransport);
+  fs.writeFileSync(path.join(cliTransport, 'raft'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const env = {
     ...process.env,
     RAFT_ADAPTER_CONFIG: configFile,
     RAFT_ADAPTER_LOCAL: temp,
     RAFT_ADAPTER_HTTP: '1',
+    SLOCK_CLI_TRANSPORT_DIR: cliTransport,
     MOCK_STATE_FILE: path.join(temp, 'sessions.json'),
     MOCK_SPAWN_LOG: path.join(temp, 'spawns.log'),
     ...extraEnv
@@ -43,7 +47,10 @@ function fixture(t, extraEnv = {}) {
   const calls = () => fs.existsSync(env.MOCK_STATE_FILE)
     ? (JSON.parse(fs.readFileSync(env.MOCK_STATE_FILE, 'utf8')).calls ?? [])
     : [];
-  return { open, temp, spawns, calls };
+  const state = () => fs.existsSync(env.MOCK_STATE_FILE)
+    ? JSON.parse(fs.readFileSync(env.MOCK_STATE_FILE, 'utf8'))
+    : { sessions: [] };
+  return { open, temp, cliTransport, spawns, calls, state };
 }
 
 function collect(rpc) {
@@ -55,7 +62,7 @@ function collect(rpc) {
 }
 
 test('HTTP ACP answers the handshake, opens a session, and streams a prompt', { timeout: 60000 }, async t => {
-  const { open, temp, spawns, calls } = fixture(t);
+  const { open, temp, cliTransport, spawns, calls, state } = fixture(t);
   const rpc = open();
   const init = await rpc.request('initialize', initializeParams);
   assert.equal(init.agentCapabilities.loadSession, true);
@@ -63,7 +70,13 @@ test('HTTP ACP answers the handshake, opens a session, and streams a prompt', { 
   assert.deepEqual(init._meta.modelState.availableModels.map(model => model.modelId), ['codebuddy:default-model', 'codebuddy:gpt-5.5']);
 
   const updates = collect(rpc);
-  const session = await rpc.request('session/new', { cwd: temp, mcpServers: [] });
+  const session = await rpc.request('session/new', { cwd: path.join(temp, 'elsewhere'), mcpServers: [] });
+  // The shared backend dispatches any raft call made by this session to the
+  // adapter's own CLI transport, not the first agent's inherited one.
+  assert.equal(fs.readFileSync(path.join(temp, 'session-identities', session.sessionId), 'utf8').trim(), cliTransport);
+  assert.ok(fs.existsSync(path.join(temp, 'bin', 'raft')));
+  // The adapter's own cwd wins: the shared CodeBuddy process can only have one.
+  assert.equal(state().sessions.find(([id]) => id === session.sessionId)?.[1]?.cwd, temp);
   const result = await rpc.request('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'from-http' }] });
   assert.equal(result.stopReason, 'end_turn');
   const text = updates

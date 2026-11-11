@@ -15,6 +15,7 @@ import { spawn } from 'node:child_process';
 import { loadConfig, localDir } from './config.mjs';
 import { tryInitializeLock } from './backends.mjs';
 import { backendStatePath, daemonSocketPath } from './http-shared.mjs';
+import { ensureDispatcher } from './session-identity.mjs';
 
 const START_TIMEOUT_MS = 60000;
 const START_POLL_MS = 100;
@@ -117,10 +118,15 @@ async function main() {
   const idleMs = adapterIdleMs > 0 ? Math.min(adapterIdleMs, 30000) : 0;
   const port = await freePort();
   const password = randomBytes(24).toString('base64url');
+  // Put the per-session CLI dispatcher in front of the inherited PATH. The
+  // backend's own environment belongs to the first agent that started it; the
+  // dispatcher chooses the right agent wrapper from CODEBUDDY_SESSION_ID.
+  const dispatcher = ensureDispatcher(dir);
   const env = {
     ...process.env,
     CODEBUDDY_GATEWAY_AUTH: 'password',
-    CODEBUDDY_GATEWAY_PASSWORD: password
+    CODEBUDDY_GATEWAY_PASSWORD: password,
+    PATH: [dispatcher, process.env.PATH ?? process.env.Path].filter(Boolean).join(path.delimiter)
   };
   const child = spawn(config.spawn.command, httpSpawnArgs(config, port), {
     cwd: process.cwd(),

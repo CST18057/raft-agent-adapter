@@ -7,6 +7,7 @@ import { spawnHttpRpc } from './http-rpc.mjs';
 import { option, thinkingInfo, catalogKey, reasoningMeta, modelMap, stampCategories, readCatalog, writeCatalog, mergeCatalog, sameCatalog } from './model-config.mjs';
 import { loadConfig, version, localDir } from './config.mjs';
 import { backends, readBackendState, writeBackendState, clearPrimedSession, initializeCacheKey, readInitializeCache, writeInitializeCache, invalidateInitializeCache, tryInitializeLock } from './backends.mjs';
+import { recordSessionIdentity, clearSessionIdentity } from './session-identity.mjs';
 
 const args = process.argv.slice(2);
 if (args.includes('--version') || args.includes('-V')) {
@@ -505,6 +506,10 @@ async function handleInner(method, params) {
   }
   if (method === 'session/new' || method === 'session/load') {
     const { _meta: meta = {}, ...nativeParams } = params;
+    // The shared CodeBuddy process keeps one working directory for every
+    // session. Each adapter's own cwd is its agent workspace, so prefer it over
+    // a host-supplied cwd that may be the runner's.
+    if (config.http) nativeParams.cwd = process.cwd();
     if (method === 'session/load' && backend.knownSessionsOnly && !knownSession(params.sessionId)) throw backend.missingSessionError(params.sessionId);
     if (method === 'session/load' && !backend.nativeLoad && sessions.has(params.sessionId)) {
       // The session is already live in this bridge process; there is nothing
@@ -538,6 +543,11 @@ async function handleInner(method, params) {
     }
     const sessionId = opened.sessionId ?? params.sessionId;
     if (!sessionId) throw new Error(`${backend.displayName} did not return a session ID`);
+    // The shared CodeBuddy backend runs every agent's tools in one process. Its
+    // environment belongs to whichever agent started it, so record this
+    // session's own CLI transport for the dispatcher on PATH (see
+    // src/session-identity.mjs).
+    if (config.http) recordSessionIdentity(sessionId, { env });
     if (backend.knownSessionsOnly) rememberSession(sessionId);
     if (backend.permissionMode) {
       try {
@@ -549,7 +559,7 @@ async function handleInner(method, params) {
     observeConfig(opened);
     persistCatalog(opened, { defaultKnown: method === 'session/new' });
     if (method === 'session/new' && liveInitialized) persistInitializeCache(liveInitialized, opened);
-    sessions.set(sessionId, { standingPrompt: meta.systemPromptOverride ?? '', needsInstructions: true, midTurns: new Set(), deferred: [], usageByRequest: new Map(), cwd: params.cwd ?? process.cwd() });
+    sessions.set(sessionId, { standingPrompt: meta.systemPromptOverride ?? '', needsInstructions: true, midTurns: new Set(), deferred: [], usageByRequest: new Map(), cwd: nativeParams.cwd ?? process.cwd() });
     if (config.http) httpLoaded.add(sessionId);
     return stampCategories({ ...opened, sessionId }, backend.thinkingConfigId);
   }
@@ -568,13 +578,13 @@ async function handleInner(method, params) {
   if (method === 'session/prompt') return prompt(params);
   if (method === 'session/delete' || method === 'session/close') {
     state(params.sessionId);
-    if (!backend.closeMethods.length) { sessions.delete(params.sessionId); return {}; }
+    if (!backend.closeMethods.length) { sessions.delete(params.sessionId); if (config.http) clearSessionIdentity(params.sessionId); return {}; }
     // Forward the requested method when the backend speaks it (Devin's
     // delete-vs-close distinction is meaningful); otherwise map to close.
     const candidates = backend.closeMethods.includes(method) ? [method] : backend.closeMethods;
     let last;
     for (const closeMethod of candidates) {
-      try { const result = await backendRpc().request(closeMethod, params); sessions.delete(params.sessionId); return result; }
+      try { const result = await backendRpc().request(closeMethod, params); sessions.delete(params.sessionId); if (config.http) clearSessionIdentity(params.sessionId); return result; }
       catch (error) { last = error; }
     }
     throw last;
@@ -641,6 +651,7 @@ async function shutdown(exitCode = 0, { release = true } = {}) {
   if (release) {
     try { await releasePrimed(); } catch { /* backend may already be gone */ }
   }
+  if (config.http) for (const sessionId of sessions.keys()) clearSessionIdentity(sessionId);
   if (rpc) {
     try { await rpc.close(); } catch { /* backend may already be gone */ }
   }

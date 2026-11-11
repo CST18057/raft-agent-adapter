@@ -96,6 +96,34 @@ Raft agent E ── stdio ── adapter process E ─┘
   CodeBuddy initialize client name, uses the shared backend for the cold-cache
   probe, and reconnects/resumes on backend loss.
 - `src/backends.mjs`: CodeBuddy resumes with history replay suppressed.
+- `src/session-identity.mjs`: records the per-session `raft`/`slock`/`cont`
+  wrapper and installs the dispatcher that the daemon puts in front of PATH.
+- `src/cli-dispatcher.mjs`: reads `CODEBUDDY_SESSION_ID` from the tool process
+  and execs the wrapper recorded for that session.
+
+### Per-session Raft identity
+
+The shared backend's process environment belongs to the first agent that
+started it. Every Bash tool child inherits that agent's `PATH`,
+`SLOCK_AGENT_ID` and proxy token, so a bare `raft message send` from any other
+session used to post as the first agent.
+
+CodeBuddy injects `CODEBUDDY_SESSION_ID` into tool children. The adapter uses
+that id as the session key:
+
+1. On `session/new` or `session/load`, the adapter writes
+   `session-identities/<sessionId>` containing its own
+   `SLOCK_CLI_TRANSPORT_DIR` (the per-agent wrapper directory).
+2. The daemon prepends `bin/` to the backend's `PATH` and installs
+   `raft`/`slock`/`cont` shims there.
+3. A shim runs `src/cli-dispatcher.mjs`, which reads
+   `CODEBUDDY_SESSION_ID`, looks up the recorded transport, and execs that
+   agent's wrapper. The wrapper sets its own `SLOCK_AGENT_ID`, token file and
+   transport before running the Raft CLI.
+4. `session/delete`/`session/close` and adapter shutdown remove the mapping.
+
+No per-agent backend is needed for identity: one CodeBuddy process can serve
+several sessions while each session talks to Raft as its own agent.
 
 ### Lifecycle
 
@@ -121,6 +149,13 @@ Raft agent E ── stdio ── adapter process E ─┘
   until it is restarted.
 - The daemon is a small extra Node process. The heavy process is still one
   CodeBuddy server; this change does not make CodeBuddy itself lighter.
+- `CODEBUDDY_SESSION_ID` is the session key the dispatcher relies on. It is
+  undocumented CodeBuddy behavior; re-verify it after every CodeBuddy upgrade.
+  If it disappears, Raft CLI calls fail loudly instead of silently posting as
+  the first agent.
+- A shared CodeBuddy process still has one working directory. The adapter sends
+  its own cwd on `session/new` and `session/load`, but CodeBuddy may still run
+  tools in the process cwd; re-check workspace isolation after an upgrade.
 - `RAFT_ADAPTER_HTTP=0` keeps the stdio fallback for debugging. It remains one
   backend process per adapter and does not use the shared daemon.
 - The state file contains a loopback password. It is written with mode 0600 on
