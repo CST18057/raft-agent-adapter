@@ -102,7 +102,16 @@ async function main() {
     console.error('[raft-adapter-http] This daemon is only used by the CodeBuddy HTTP backend');
     process.exit(2);
   }
-  const releaseLock = tryInitializeLock(localDir(), 'http-daemon');
+  // A replacement daemon can be spawned while the previous one is still tearing
+  // down: the adapter reconnects as soon as the backend child exits, which is
+  // just before the old daemon releases this lifetime lock. Wait briefly for
+  // the old daemon to release the lock instead of exiting immediately, which
+  // would otherwise leave the adapter polling for a daemon that never starts.
+  let releaseLock = null;
+  for (let attempt = 0; attempt < 300 && !releaseLock; attempt++) {
+    releaseLock = tryInitializeLock(localDir(), 'http-daemon');
+    if (!releaseLock) await sleep(100);
+  }
   if (!releaseLock) process.exit(0);
   process.on('exit', () => { try { releaseLock(); } catch { /* already released */ } });
 

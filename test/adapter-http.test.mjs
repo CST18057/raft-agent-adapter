@@ -74,7 +74,7 @@ test('HTTP ACP answers the handshake, opens a session, and streams a prompt', { 
   // The shared backend dispatches any raft call made by this session to the
   // adapter's own CLI transport, not the first agent's inherited one.
   assert.equal(fs.readFileSync(path.join(temp, 'session-identities', session.sessionId), 'utf8').trim(), cliTransport);
-  assert.ok(fs.existsSync(path.join(temp, 'bin', 'raft')));
+  assert.ok(fs.existsSync(path.join(temp, 'bin', process.platform === 'win32' ? 'raft.cmd' : 'raft')));
   // The adapter's own cwd wins: the shared CodeBuddy process can only have one.
   assert.equal(state().sessions.find(([id]) => id === session.sessionId)?.[1]?.cwd, temp);
   const result = await rpc.request('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'from-http' }] });
@@ -149,8 +149,8 @@ test('host permission requests travel back over the HTTP connection', { timeout:
   assert.ok(calls().some(call => call.method === 'permission-resolved' && call.outcome === 'allow'));
 });
 
-test('an idle backend exits and the next prompt resumes in a fresh process', { timeout: 60000 }, async t => {
-  const { open, temp, spawns } = fixture(t, { RAFT_ADAPTER_HTTP_IDLE_MS: '80' });
+test('an idle backend exits and the next prompt resumes in a fresh process', { timeout: 120000 }, async t => {
+  const { open, temp, spawns } = fixture(t, { RAFT_ADAPTER_HTTP_IDLE_MS: '300' });
   const rpc = open();
   const updates = collect(rpc);
   await rpc.request('initialize', initializeParams);

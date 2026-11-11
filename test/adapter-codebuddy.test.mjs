@@ -172,7 +172,19 @@ test('the adapter exits on SIGTERM while the host keeps its stdin open', async t
   fs.writeFileSync(configFile, JSON.stringify({ backend: 'codebuddy', codebuddyExe: process.execPath, codebuddyArgs: [path.join(projectRoot, 'test/fake-codebuddy.mjs'), '--acp'] }));
   const env = { ...process.env, RAFT_ADAPTER_CONFIG: configFile, RAFT_ADAPTER_LOCAL: temp, RAFT_ADAPTER_HTTP: '0', MOCK_STATE_FILE: path.join(temp, 'sessions.json') };
   const child = spawn(process.execPath, [path.join(projectRoot, 'src/adapter.mjs'), 'agent', 'stdio'], { cwd: temp, env, stdio: ['pipe', 'pipe', 'pipe'] });
-  t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); fs.rmSync(temp, { recursive: true, force: true }); });
+  t.after(async () => {
+    if (child.exitCode === null) child.kill('SIGKILL');
+    // On Windows the adapter is force-terminated without running shutdown, so
+    // its backend child is orphaned and holds the temp directory briefly.
+    // Retry the cleanup until the orphan releases it.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      try { fs.rmSync(temp, { recursive: true, force: true }); return; }
+      catch (error) {
+        if (error.code !== 'EPERM') throw error;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+  });
 
   await new Promise((resolve, reject) => {
     const lines = createInterface({ input: child.stdout });

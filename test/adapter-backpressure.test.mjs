@@ -15,7 +15,14 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const OVERRIDE_MS = Number(process.env.RAFT_BP_STALL_MS);
 const STALL_MS = Number.isFinite(OVERRIDE_MS) && OVERRIDE_MS > 0 ? OVERRIDE_MS : (process.platform === 'win32' ? 1500 : 1000);
 
-test('host backpressure reaches the backend instead of buffering its flood', { timeout: 30000 }, async t => {
+// On Windows, a piped process.stdout uses blocking writes, so write() does not
+// return false under backpressure and the chain this test proves (host pauses
+// -> adapter pauses -> backend blocks) cannot be observed. Skip there; the
+// behavior is exercised on the Linux shards.
+test('host backpressure reaches the backend instead of buffering its flood', {
+  timeout: 30000,
+  skip: process.platform === 'win32' ? 'Windows piped stdout does not report write backpressure' : false
+}, async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'raft-backpressure-'));
   const configFile = path.join(temp, 'config.json');
   fs.writeFileSync(configFile, JSON.stringify({
